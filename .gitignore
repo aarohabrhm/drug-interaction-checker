@@ -11,4 +11,4 @@ db.sqlite3
 *.sqlite3
 *.db
 
-db_drug_interaction.csv
+backend/db_drug_interactions.csv
