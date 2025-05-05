@@ -1,0 +1,19 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    // Ensure TypeScript can resolve modules correctly
+    "moduleResolution": "node",
+    // Enable strict type checking for better error detection
+    "strict": true,
+    // Skip type checking of declaration files for faster compilation
+    "skipLibCheck": true,
+    // Ensure compatibility with Next.js
+    "esModuleInterop": true,
+    "allowJs": true,
+    "isolatedModules": true
+  }
+}
