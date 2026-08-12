@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import (
@@ -158,6 +159,7 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "screening_complete",
         ]
 
+    @extend_schema_field(InteractionWarningSerializer(many=True))
     def get_warnings(self, obj):
         """Warnings, most severe first.
 
@@ -210,3 +212,53 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             [PrescriptionItem(prescription=prescription, **item) for item in items]
         )
         return prescription
+
+
+# --------------------------------------------------------------------------- #
+# Documentation-only shapes for the standalone interaction check.
+#
+# The check endpoint validates by hand (it needs precise control over the error
+# codes it returns), so these describe the payloads for the OpenAPI schema
+# rather than driving validation. Keep them in step with `views.py`.
+# --------------------------------------------------------------------------- #
+
+
+class InteractionCheckRequestSerializer(serializers.Serializer):
+    patient_id = serializers.IntegerField()
+    new_medications = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Medication names to screen against the patient's current list.",
+    )
+
+
+class UnscreenedPairSerializer(serializers.Serializer):
+    """A pair no source could answer. Nothing is known about it either way."""
+
+    drug_1 = serializers.CharField()
+    drug_2 = serializers.CharField()
+
+
+class InteractionFindingSerializer(serializers.Serializer):
+    drug_1 = serializers.CharField()
+    drug_2 = serializers.CharField()
+    interaction = serializers.CharField()
+    severity = serializers.CharField(
+        help_text="contraindicated | major | moderate | minor | unknown"
+    )
+    source = serializers.CharField(help_text="dataset | openfda | ai_unverified")
+    management = serializers.CharField(allow_blank=True)
+
+
+class InteractionCheckResponseSerializer(serializers.Serializer):
+    interactions = InteractionFindingSerializer(many=True)
+    unscreened_pairs = UnscreenedPairSerializer(many=True)
+    screening_complete = serializers.BooleanField(
+        help_text=(
+            "False when at least one pair could not be screened. An empty "
+            "`interactions` list with `screening_complete: false` is NOT an "
+            "all-clear."
+        )
+    )
+    message = serializers.CharField(
+        required=False, help_text="Only present on a complete, clean screen."
+    )

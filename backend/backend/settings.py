@@ -113,6 +113,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "rest_framework.authtoken",
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
     "corsheaders",
     "interactions",
     "authentication",
@@ -169,6 +171,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 25,
     # Uniform, non-leaky error bodies.
     "EXCEPTION_HANDLER": "backend.exceptions.safemeds_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.UserRateThrottle",
         "rest_framework.throttling.AnonRateThrottle",
@@ -193,6 +196,40 @@ REST_FRAMEWORK = {
 
 # Hours an auth token stays valid; consumed by ExpiringTokenAuthentication.
 AUTH_TOKEN_TTL_HOURS = _int("AUTH_TOKEN_TTL_HOURS", 12)
+
+
+# --------------------------------------------------------------------------- #
+# OpenAPI schema (drf-spectacular)
+# --------------------------------------------------------------------------- #
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "SafeMeds API",
+    "DESCRIPTION": (
+        "Drug-to-drug interaction checking for prescribers.\n\n"
+        "All endpoints except the health probes require `Authorization: Token "
+        "<token>`. Patients are scoped to the doctor who created them; another "
+        "doctor's record returns 404 rather than 403, so the API cannot be used "
+        "to enumerate patient ids.\n\n"
+        "**Interaction responses always carry `screening_complete` and "
+        "`unscreened_pairs`.** An empty `interactions` list does not by itself "
+        "mean 'no interactions' -- a pair whose sources were all unreachable is "
+        "reported as unscreened, never silently omitted."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # The browsable schema endpoints are dev-only; in production the JSON schema
+    # is still served but the interactive UI is not exposed by default.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
+    "COMPONENT_SPLIT_REQUEST": True,
+    "TAGS": [
+        {"name": "auth", "description": "Doctor accounts and tokens."},
+        {"name": "patients", "description": "Patient records (PHI, scoped per doctor)."},
+        {"name": "prescriptions", "description": "Issuing and reviewing prescriptions."},
+        {"name": "health", "description": "Deployment probes."},
+    ],
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -339,6 +376,12 @@ if DEBUG:
 else:
     SECURE_SSL_REDIRECT = _bool("DJANGO_SECURE_SSL_REDIRECT", True)
     SECURE_HSTS_SECONDS = _int("DJANGO_SECURE_HSTS_SECONDS", 31536000)
+    if TESTING:
+        # The Django test client speaks plain HTTP, so an SSL redirect turns
+        # every request into a 301 and the whole suite fails. Disabled only
+        # while tests run; `check --deploy` executes outside the test runner
+        # and still asserts the redirect is enabled.
+        SECURE_SSL_REDIRECT = False
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     # Trust the reverse proxy's forwarded scheme (Heroku/Render/Fly/nginx).

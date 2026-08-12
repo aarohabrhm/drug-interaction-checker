@@ -238,15 +238,55 @@ API, prescribing screen, and history.
 Tokens expire after `AUTH_TOKEN_TTL_HOURS` (default 12) and are rotated on every
 login.
 
+## API documentation
+
+The OpenAPI 3 schema is generated from the code, so it cannot drift from the
+implementation:
+
+| Path           | What                                              |
+| -------------- | ------------------------------------------------- |
+| `/api/schema/` | Machine-readable OpenAPI document (all environments) |
+| `/api/docs/`   | Swagger UI — **DEBUG only**                        |
+| `/api/redoc/`  | ReDoc — **DEBUG only**                             |
+
+The interactive UIs enumerate the whole API surface with try-it-out forms, so
+they are not exposed outside development. UI assets are vendored locally
+(`drf-spectacular-sidecar`) — the docs page loads no third-party CDN.
+
+CI regenerates the schema with `--fail-on-warn`, so an endpoint added without
+annotation breaks the build rather than silently degrading the docs.
+
 ## Tests
 
 ```bash
-cd backend
-python manage.py test
+cd backend && python manage.py test          # 70 tests
+
+cd project && npm test                       # 31 tests
+npm run test:watch                           # watch mode
+npm run test:coverage                        # coverage report
 ```
 
-These cover the auth and interaction-checking paths only. There are **no
-frontend tests**.
+Backend tests cover auth, patient scoping, prescriptions, interaction
+resolution, normalization and provenance. External sources (RxNorm, openFDA,
+Gemini) are **disabled automatically under `manage.py test`** — a unit test that
+silently depends on a third-party API being reachable is slow, flaky, and fails
+on a plane. They are covered with mocks instead.
+
+Frontend tests use Vitest + React Testing Library and concentrate on the
+safety-critical rendering: that "checked and clear", "found something" and
+"could not check" can never be presented as one another.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+- **Backend** — against real Postgres (not the SQLite dev fallback), with
+  `makemigrations --check`, `check --deploy --fail-level WARNING`, the test
+  suite, and OpenAPI schema validation.
+- **Frontend** — `npm ci`, lint, tests, production build.
+- **Dependency audit** — `pip-audit` and `npm audit`, advisory only
+  (`continue-on-error`) so a newly published CVE does not turn an unrelated PR
+  red. Read the output; do not ignore it.
 
 ## Before you deploy
 
@@ -265,7 +305,9 @@ Blocking items, in order:
 4. **Restrict `CORS_ALLOWED_ORIGINS`** to your real frontend origin. A `*` value
    is rejected at startup.
 5. Review the remaining dependency advisories — `npm audit` in `project/`
-   currently reports 4, all requiring major version bumps.
+   reports 4 (1 high, 3 moderate), all requiring major version bumps. The high
+   one is a Vite **dev-server** path traversal: it is not present in the
+   production bundle, but fixing it means moving to Vite 8.
 
 ## Handling patient data
 

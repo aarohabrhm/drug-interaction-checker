@@ -28,11 +28,25 @@ from rest_framework.decorators import (
     permission_classes,
     throttle_classes,
 )
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 
+from backend.schema import (
+    ERROR_RESPONSES,
+    ErrorResponseSerializer,
+    MessageResponseSerializer,
+)
+
 from .models import Doctor
+from .serializers import (
+    DoctorProfileSerializer,
+    LoginRequestSerializer,
+    LoginResponseSerializer,
+    SignupRequestSerializer,
+    SignupResponseSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +72,17 @@ def _error(code, message, details=None, http_status=status.HTTP_400_BAD_REQUEST)
     return Response(body, status=http_status)
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Create a doctor account",
+    request=SignupRequestSerializer,
+    responses={
+        201: SignupResponseSerializer,
+        400: ErrorResponseSerializer,
+        409: ErrorResponseSerializer,
+        429: ErrorResponseSerializer,
+    },
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -116,6 +141,17 @@ def signup(request):
     )
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Exchange credentials for a token",
+    description=(
+        "Returns an identical 401 for an unknown username, a wrong password and "
+        "a disabled account, so this endpoint cannot be used as a username "
+        "oracle. Rate limited; issuing a token revokes any previous one."
+    ),
+    request=LoginRequestSerializer,
+    responses={200: LoginResponseSerializer, **ERROR_RESPONSES},
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -158,6 +194,12 @@ def login_view(request):
     )
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Invalidate the caller's token",
+    request=None,
+    responses={200: MessageResponseSerializer, 401: ErrorResponseSerializer},
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
@@ -170,6 +212,11 @@ def logout_view(request):
     return Response({"message": "Logged out."})
 
 
+@extend_schema(
+    tags=["auth"],
+    summary="Current doctor's profile",
+    responses={200: DoctorProfileSerializer, 401: ErrorResponseSerializer},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_user_details(request):

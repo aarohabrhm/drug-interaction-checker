@@ -15,10 +15,21 @@ from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema
+
+from .schema import HealthResponseSerializer, ReadinessResponseSerializer
 
 logger = logging.getLogger(__name__)
 
 
+@extend_schema(
+    tags=["health"],
+    summary="Liveness probe",
+    description="Process is up. Deliberately touches no dependencies, so a "
+    "database blip does not cause the orchestrator to kill a healthy worker.",
+    auth=[],
+    responses={200: HealthResponseSerializer},
+)
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -27,6 +38,13 @@ def liveness(request):
     return Response({"status": "ok"})
 
 
+@extend_schema(
+    tags=["health"],
+    summary="Readiness probe",
+    description="Also verifies the database answers. Returns 503 when degraded.",
+    auth=[],
+    responses={200: ReadinessResponseSerializer, 503: ReadinessResponseSerializer},
+)
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])
