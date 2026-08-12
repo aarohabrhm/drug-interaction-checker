@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import (
+    SEVERITY_RANK,
     PatientList,
     Prescription,
     PrescriptionItem,
@@ -95,11 +96,29 @@ class PrescriptionItemSerializer(serializers.ModelSerializer):
 
 
 class InteractionWarningSerializer(serializers.ModelSerializer):
-    """Read-only view of a recorded warning."""
+    """Read-only view of a recorded warning.
+
+    `severity` and `source` are exposed so the UI can rank warnings and mark
+    which came from a curated dataset versus an unverified AI answer.
+    """
+
+    severity_label = serializers.CharField(source="get_severity_display", read_only=True)
+    source_label = serializers.CharField(source="get_source_display", read_only=True)
 
     class Meta:
         model = SavedInteraction
-        fields = ["id", "drug_1", "drug_2", "interaction_description", "checked_at"]
+        fields = [
+            "id",
+            "drug_1",
+            "drug_2",
+            "interaction_description",
+            "severity",
+            "severity_label",
+            "source",
+            "source_label",
+            "management_recommendation",
+            "checked_at",
+        ]
         read_only_fields = fields
 
 
@@ -107,7 +126,7 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     """Prescription with its medication lines and the warnings it raised."""
 
     items = PrescriptionItemSerializer(many=True)
-    warnings = InteractionWarningSerializer(many=True, read_only=True)
+    warnings = serializers.SerializerMethodField()
     patient_name = serializers.CharField(source="patient.name", read_only=True)
     prescribed_by_username = serializers.CharField(
         source="prescribed_by.username", read_only=True, default=None
@@ -127,6 +146,20 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "warnings",
         ]
         read_only_fields = ["id", "created_at", "warnings"]
+
+    def get_warnings(self, obj):
+        """Warnings, most severe first.
+
+        Sorted in Python over the prefetched rows rather than in SQL: severity
+        is stored as a string, so a database ORDER BY would sort it
+        alphabetically ("major" before "minor" before "moderate") -- which is
+        not clinical order.
+        """
+        ordered = sorted(
+            obj.warnings.all(),
+            key=lambda w: (-SEVERITY_RANK.get(w.severity, 0), w.drug_1, w.drug_2),
+        )
+        return InteractionWarningSerializer(ordered, many=True).data
 
     def validate_items(self, value):
         if not value:

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, X } from 'lucide-react';
 import { Button } from './Button';
 import { Input } from './Input';
+import { InteractionWarnings } from './InteractionWarnings';
 import type {
   InteractionWarning,
   Patient,
@@ -286,37 +287,15 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
             </p>
           )}
           {loading ? (
-          <p className="text-gray-500">Saving and checking interactions...</p>
-        ) : checkError ? (
-          <p className="text-red-600 bg-red-50 p-3 rounded">{checkError}</p>
-        ) : interaction.length > 0 ? (
-          <table className="w-full border">
-            <thead>
-              <tr className="bg-gray-200">
-                <th className="border p-2">Drug 1</th>
-                <th className="border p-2">Drug 2</th>
-                <th className="border p-2">Interaction</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Every row the API returns is a real interaction -- it filters
-                  out "no known interaction" results server-side. The old
-                  substring test on "no" mis-coloured warnings green for any
-                  text containing that substring ("not recommended",
-                  "norepinephrine"). */}
-              {interaction.map((interaction, index) => (
-                  <tr key={index} className="bg-red-200">
-                    <td className="border p-2">{interaction.drug_1}</td>
-                    <td className="border p-2">{interaction.drug_2}</td>
-                    <td className="border p-2">{interaction.interaction_description}</td>
-                  </tr>
-                ))}
-            </tbody>
-
-          </table>
-        ) : (
-          <p className="text-gray-500">No interactions found</p> // ✅ Handle no interactions case
-        )}
+            <p className="text-gray-500">Saving and checking interactions...</p>
+          ) : (
+            // `unavailable` keeps a failed check visually distinct from a clean
+            // one -- an empty list after an error is not an all-clear.
+            <InteractionWarnings warnings={interaction} unavailable={Boolean(checkError)} />
+          )}
+          {checkError && (
+            <p className="text-sm text-red-700 bg-red-50 p-3 rounded mt-3">{checkError}</p>
+          )}
 
                 </div>
               )}

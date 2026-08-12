@@ -102,17 +102,50 @@ export POSTGRES_PASSWORD=<pick one>
 docker compose up --build
 ```
 
-## Loading the interaction dataset
+## Interaction data
 
-The curated CSV (`drug_1,drug_2,interaction`) is imported with a management
-command:
+Interactions resolve through three layers, in descending order of trust. Every
+result records which layer answered, and that provenance is shown to the doctor.
+
+| Layer | Source | Notes |
+| ----- | ------ | ----- |
+| 1 | **Curated dataset** | Local table. Graded by severity. The only authoritative source. |
+| 2 | **openFDA drug labels** | FDA prescribing information. Free, no key. Ungraded free text. |
+| 3 | **Gemini (optional)** | Off unless a key is set. Always labelled *AI · unverified*. |
+
+Drug names are normalized through the **RxNorm** API first, so a prescription
+written as *Coumadin* matches a dataset keyed on *warfarin*. Without that step
+brand names silently fail to match — a false negative, which in a safety tool is
+worse than an error. Resolutions are cached permanently in `DrugNameAlias`, so
+each distinct name costs at most one lookup ever, and the app still works
+offline once warm.
+
+### Loading a dataset
+
+A small **demonstration** dataset ships with the repo so the app has something to
+find out of the box:
 
 ```bash
-python manage.py import_interactions --path db_drug_interactions.csv
+python manage.py import_interactions --path interactions/data/sample_interactions.demo.csv
+```
+
+> It covers ~23 pairs. **Absence from it means nothing has been checked, not that
+> a combination is safe.** See `interactions/data/README.md`.
+
+For real use, load **DDInter 2.0** (~302k interactions, severity-graded,
+CC BY-NC-SA 4.0 — non-commercial):
+
+```bash
+python manage.py import_interactions --path ddinter_downloads_code_A.csv --replace
 python manage.py import_interactions --path data.csv --dry-run   # preview
 ```
 
-The CSV itself is gitignored and is not distributed with this repo.
+The importer auto-detects DDInter's columns (`Drug_A`, `Drug_B`, `Level`, …) and
+the legacy `drug_1,drug_2,interaction` layout.
+
+**The NLM RxNav Drug Interaction API is not used: NIH discontinued it in January
+2024**, and DrugBank retired its free checker in March 2026. RxNorm
+(normalization) and openFDA (labels) remain free and live.
 
 ## API
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, FileText } from 'lucide-react';
+import { ArrowLeft, FileText } from 'lucide-react';
+import { InteractionWarnings } from '../components/InteractionWarnings';
 import {
   Patient,
   Prescription,
@@ -136,24 +137,14 @@ export default function PrescriptionHistory() {
                 </ul>
 
                 {prescription.warnings.length > 0 ? (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="flex items-center gap-2 text-sm font-medium text-red-800 mb-2">
-                      <AlertTriangle className="h-4 w-4" />
-                      {prescription.warnings.length} interaction
-                      {prescription.warnings.length > 1 ? 's' : ''} flagged at the time
-                      of prescribing
+                  <>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Flagged at the time of prescribing:
                     </p>
-                    <ul className="space-y-1">
-                      {prescription.warnings.map((warning) => (
-                        <li key={warning.id} className="text-xs text-red-900">
-                          <strong>
-                            {warning.drug_1} + {warning.drug_2}:
-                          </strong>{' '}
-                          {warning.interaction_description}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                    {/* Same component as the prescribing screen, so a warning
+                        looks identical wherever the doctor meets it. */}
+                    <InteractionWarnings warnings={prescription.warnings} />
+                  </>
                 ) : (
                   <p className="text-xs text-gray-500">
                     No interactions were flagged when this was issued.

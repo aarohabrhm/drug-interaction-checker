@@ -1,0 +1,24 @@
+Drug_A,Drug_B,Level,Description,Management
+warfarin,aspirin,Major,Additive antiplatelet and anticoagulant effects substantially increase bleeding risk.,Avoid unless specifically indicated; if combined monitor INR and watch for bleeding.
+warfarin,ibuprofen,Major,NSAIDs increase bleeding risk with anticoagulants through platelet inhibition and GI irritation.,Prefer paracetamol for analgesia; if an NSAID is required use gastroprotection and monitor closely.
+warfarin,acetaminophen,Moderate,Regular high-dose paracetamol may potentiate the anticoagulant effect.,Occasional use is acceptable; monitor INR with sustained high doses.
+warfarin,fluconazole,Major,Azole antifungals inhibit warfarin metabolism and markedly raise INR.,Reduce warfarin dose and monitor INR frequently during and after the course.
+warfarin,trimethoprim,Major,Increases anticoagulant effect and bleeding risk.,Choose an alternative antibiotic where possible; otherwise monitor INR closely.
+simvastatin,clarithromycin,Contraindicated,Strong CYP3A4 inhibition causes very high statin exposure and risk of rhabdomyolysis.,Suspend the statin for the duration of the antibiotic course.
+simvastatin,itraconazole,Contraindicated,Strong CYP3A4 inhibition markedly increases the risk of myopathy and rhabdomyolysis.,Do not co-administer; suspend the statin or use an alternative antifungal.
+simvastatin,amlodipine,Moderate,Amlodipine raises simvastatin exposure and myopathy risk.,Limit simvastatin to 20 mg daily when combined.
+methotrexate,trimethoprim,Contraindicated,Both are antifolates; the combination can cause severe myelosuppression.,Avoid; use an alternative antibiotic.
+methotrexate,ibuprofen,Major,NSAIDs reduce methotrexate clearance and increase toxicity.,Avoid at antineoplastic doses; monitor closely at low doses.
+lithium,ibuprofen,Major,NSAIDs reduce renal lithium clearance and can cause lithium toxicity.,Avoid where possible; if combined monitor lithium levels.
+lithium,hydrochlorothiazide,Major,Thiazide diuretics reduce lithium clearance and raise serum levels.,Monitor lithium concentrations and adjust the dose.
+phenelzine,sertraline,Contraindicated,Combining an MAOI with an SSRI risks life-threatening serotonin syndrome.,Do not combine; observe the required washout period between agents.
+sertraline,tramadol,Major,Additive serotonergic effect increases the risk of serotonin syndrome and seizures.,Avoid if possible; otherwise use the lowest dose and counsel on warning signs.
+clopidogrel,omeprazole,Moderate,Omeprazole inhibits CYP2C19 and reduces conversion of clopidogrel to its active form.,Prefer pantoprazole if acid suppression is needed.
+digoxin,amiodarone,Major,Amiodarone raises digoxin concentrations and can cause toxicity.,Halve the digoxin dose and monitor levels.
+digoxin,furosemide,Moderate,Diuretic-induced hypokalaemia increases the risk of digoxin toxicity.,Monitor potassium and replace as needed.
+spironolactone,lisinopril,Major,Combined potassium retention can cause dangerous hyperkalaemia.,Monitor serum potassium and renal function regularly.
+metformin,contrast media,Major,Risk of lactic acidosis if renal function deteriorates after contrast.,Withhold metformin around the procedure per local protocol.
+ciprofloxacin,tizanidine,Contraindicated,CYP1A2 inhibition causes a large rise in tizanidine levels with marked hypotension and sedation.,Do not co-administer.
+allopurinol,azathioprine,Major,Allopurinol blocks azathioprine metabolism causing profound myelosuppression.,Reduce the azathioprine dose substantially or avoid the combination.
+amiodarone,warfarin,Major,Amiodarone inhibits warfarin metabolism and raises INR for weeks.,Reduce the warfarin dose and monitor INR during and after amiodarone.
+verapamil,atenolol,Major,Additive negative effects on heart rate and conduction risk bradycardia and heart block.,Avoid combined use; monitor closely if unavoidable.

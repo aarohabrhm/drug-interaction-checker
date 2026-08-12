@@ -316,12 +316,27 @@ else:
 
 
 # --------------------------------------------------------------------------- #
-# Gemini interaction lookup
+# Interaction lookup sources
 # --------------------------------------------------------------------------- #
 
-# Optional on purpose: without a key the service answers from the local
-# interaction database and logs a warning, rather than refusing to boot.
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+# True while `manage.py test` is running. Used to keep the test suite off the
+# network by default -- a unit test that silently depends on RxNorm or openFDA
+# being reachable is slow and flaky, and fails on a plane.
+TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
+
+# RxNorm (NIH): maps brand names to ingredient names so the dataset can match
+# them. Free, no auth. Results are cached permanently in DrugNameAlias.
+RXNORM_ENABLED = _bool("RXNORM_ENABLED", not TESTING)
+RXNORM_TIMEOUT_SECONDS = _int("RXNORM_TIMEOUT_SECONDS", 5)
+
+# openFDA drug labels: free, no auth required, rate-limited without a key.
+OPENFDA_ENABLED = _bool("OPENFDA_ENABLED", not TESTING)
+OPENFDA_TIMEOUT_SECONDS = _int("OPENFDA_TIMEOUT_SECONDS", 8)
+
+# Gemini. Optional on purpose: without a key the service answers from the local
+# dataset and openFDA, logs a warning, and does not refuse to boot. Results are
+# always labelled as unverified AI output.
+GEMINI_API_KEY = "" if TESTING else os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash").strip()
 GEMINI_TIMEOUT_SECONDS = _int("GEMINI_TIMEOUT_SECONDS", 10)
 

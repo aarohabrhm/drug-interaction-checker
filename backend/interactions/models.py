@@ -8,6 +8,45 @@ def normalize_drug_name(name):
     return (name or "").strip().lower()
 
 
+class Severity(models.TextChoices):
+    """Clinical significance of an interaction.
+
+    Ordered by how urgently a doctor needs to act. `UNKNOWN` is not a synonym
+    for "safe" -- it means the source gave no grading, and the UI must not
+    present it as an all-clear.
+    """
+
+    CONTRAINDICATED = "contraindicated", "Contraindicated"
+    MAJOR = "major", "Major"
+    MODERATE = "moderate", "Moderate"
+    MINOR = "minor", "Minor"
+    UNKNOWN = "unknown", "Unknown"
+
+
+# Sort weight, highest first. Used to rank warnings so the most dangerous
+# interaction is never buried below a minor one.
+SEVERITY_RANK = {
+    Severity.CONTRAINDICATED: 4,
+    Severity.MAJOR: 3,
+    Severity.MODERATE: 2,
+    Severity.MINOR: 1,
+    Severity.UNKNOWN: 0,
+}
+
+
+class InteractionSource(models.TextChoices):
+    """Where an interaction statement came from.
+
+    Provenance is surfaced to the doctor. An AI-generated answer is not
+    equivalent to a curated pharmacology dataset and must never be displayed as
+    though it were.
+    """
+
+    DATASET = "dataset", "Curated dataset"
+    OPENFDA = "openfda", "openFDA drug label"
+    AI_UNVERIFIED = "ai_unverified", "AI-generated (unverified)"
+
+
 class PatientList(models.Model):
     """A patient record. Contains PHI -- every read path must be authenticated."""
 
@@ -64,11 +103,23 @@ class PatientList(models.Model):
 
 
 class DrugInteraction(models.Model):
-    """Curated interaction dataset, loaded from CSV via `import_interactions`."""
+    """Curated interaction dataset, loaded from CSV via `import_interactions`.
+
+    Populate from DDInter 2.0 (CC BY-NC-SA 4.0), which supplies severity grading
+    and management guidance alongside the interaction text.
+    """
 
     drug_1 = models.CharField(max_length=255)
     drug_2 = models.CharField(max_length=255)
     interaction = models.TextField()
+    severity = models.CharField(
+        max_length=20, choices=Severity.choices, default=Severity.UNKNOWN
+    )
+    management_recommendation = models.TextField(
+        blank=True,
+        default="",
+        help_text="What the prescriber should do about it, when the source says.",
+    )
 
     class Meta:
         unique_together = ("drug_1", "drug_2")
@@ -102,7 +153,14 @@ class InteractionLookupCache(models.Model):
     drug_2 = models.CharField(max_length=255)
     # NULL means "checked, and no significant interaction is known".
     interaction = models.TextField(blank=True, null=True)
-    source = models.CharField(max_length=50, default="gemini")
+    severity = models.CharField(
+        max_length=20, choices=Severity.choices, default=Severity.UNKNOWN
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=InteractionSource.choices,
+        default=InteractionSource.AI_UNVERIFIED,
+    )
     checked_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -115,6 +173,39 @@ class InteractionLookupCache(models.Model):
     @property
     def has_interaction(self):
         return bool(self.interaction)
+
+
+class DrugNameAlias(models.Model):
+    """Maps a drug name as typed to its normalized ingredient name.
+
+    Interaction datasets are keyed on ingredients ("acetaminophen") while
+    doctors type brand names ("Tylenol"). Without this mapping the engine
+    silently misses those pairs -- a false negative in a safety tool, which is
+    the failure mode that matters most here.
+
+    Resolution comes from the RxNorm API and is cached permanently: the mapping
+    from a brand to its ingredient does not change, so one lookup per name ever.
+    A row with `ingredient = ""` records a name RxNorm could not resolve, so a
+    failed lookup is not retried on every prescription.
+    """
+
+    queried_name = models.CharField(
+        max_length=255, unique=True, help_text="Normalized form of what was typed."
+    )
+    ingredient = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Resolved ingredient name; empty means RxNorm had no match.",
+    )
+    rxcui = models.CharField(max_length=32, blank=True, default="")
+    resolved_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = "drug name aliases"
+
+    def __str__(self):
+        return f"{self.queried_name} -> {self.ingredient or '(unresolved)'}"
 
 
 class Prescription(models.Model):
@@ -205,6 +296,18 @@ class SavedInteraction(models.Model):
     drug_1 = models.CharField(max_length=255)
     drug_2 = models.CharField(max_length=255)
     interaction_description = models.TextField()
+    # Severity and source are copied onto the audit row rather than looked up
+    # later: the dataset can be re-imported or the AI can change its answer, and
+    # the record must reflect what the doctor was actually shown at the time.
+    severity = models.CharField(
+        max_length=20, choices=Severity.choices, default=Severity.UNKNOWN
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=InteractionSource.choices,
+        default=InteractionSource.DATASET,
+    )
+    management_recommendation = models.TextField(blank=True, default="")
     checked_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

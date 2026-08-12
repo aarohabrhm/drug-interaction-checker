@@ -22,24 +22,25 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
 from .models import (
+    SEVERITY_RANK,
     DrugInteraction,
     InteractionLookupCache,
+    InteractionSource,
     PatientList,
     Prescription,
     SavedInteraction,
     TemporaryPrescription,
     normalize_drug_name,
 )
+from .normalization import resolve_many
 from .serializers import (
     InteractionWarningSerializer,
     PatientSerializer,
     PrescriptionSerializer,
 )
-from .services import lookup_interaction_externally
+from .services import InteractionFinding, lookup_interaction_externally
 
 logger = logging.getLogger(__name__)
-
-NO_INTERACTION_SENTINEL = "There are no known significant interactions"
 
 
 class InteractionCheckThrottle(UserRateThrottle):
@@ -199,30 +200,42 @@ def _resolve_known_pairs(pairs):
     names = {name for pair in pairs for name in pair}
     resolved = {}
 
-    # One query for the cache table (already stored normalized).
-    cache_rows = InteractionLookupCache.objects.filter(
-        drug_1__in=names, drug_2__in=names
-    ).values_list("drug_1", "drug_2", "interaction")
-    for drug_1, drug_2, interaction in cache_rows:
+    # The curated dataset is authoritative, so it is consulted first -- a
+    # graded pharmacology record must not be shadowed by a cached AI answer for
+    # the same pair. Lowercase both sides so one index-backed IN filter covers
+    # every pair regardless of stored casing.
+    dataset_rows = (
+        DrugInteraction.objects.annotate(d1=Lower("drug_1"), d2=Lower("drug_2"))
+        .filter(d1__in=names, d2__in=names)
+        .values_list("d1", "d2", "interaction", "severity", "management_recommendation")
+    )
+    for drug_1, drug_2, interaction, severity, management in dataset_rows:
         key = tuple(sorted([drug_1, drug_2]))
-        if key in pairs:
-            resolved[key] = interaction
+        if key in pairs and key not in resolved:
+            resolved[key] = InteractionFinding(
+                description=interaction,
+                severity=severity,
+                source=InteractionSource.DATASET,
+                management=management or "",
+            )
 
-    # One query for the curated dataset. Lowercase both sides so a single
-    # index-backed IN filter covers every pair regardless of stored casing.
+    # One query for previously-cached external lookups.
     remaining = pairs - resolved.keys()
     if remaining:
-        dataset_rows = (
-            DrugInteraction.objects.annotate(
-                d1=Lower("drug_1"), d2=Lower("drug_2")
-            )
-            .filter(d1__in=names, d2__in=names)
-            .values_list("d1", "d2", "interaction")
-        )
-        for drug_1, drug_2, interaction in dataset_rows:
+        cache_rows = InteractionLookupCache.objects.filter(
+            drug_1__in=names, drug_2__in=names
+        ).values_list("drug_1", "drug_2", "interaction", "severity", "source")
+        for drug_1, drug_2, interaction, severity, source in cache_rows:
             key = tuple(sorted([drug_1, drug_2]))
-            if key in remaining and key not in resolved:
-                resolved[key] = interaction
+            if key not in remaining or key in resolved:
+                continue
+            resolved[key] = (
+                InteractionFinding(
+                    description=interaction, severity=severity, source=source
+                )
+                if interaction
+                else InteractionFinding.none_found(source)
+            )
 
     return resolved, pairs - resolved.keys()
 
@@ -300,11 +313,25 @@ def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
     `prescription` links the recorded warnings to the prescription that raised
     them; it is None for a standalone check that issues nothing.
     """
+    # Resolve brand names to ingredients before pairing. Datasets are keyed on
+    # ingredients, so "Tylenol" would otherwise never match "acetaminophen".
+    # The display name is kept so the doctor sees what they typed.
+    # Both lists resolved in one call so the alias cache is read once, not
+    # twice. `resolve_many` is length-preserving, so the split is exact.
+    combined = resolve_many(list(new_meds) + list(current_meds))
+    new_resolved = combined[: len(new_meds)]
+    current_resolved = combined[len(new_meds) :]
+    display_name = {}
+    for typed, ingredient in list(zip(new_meds, new_resolved)) + list(
+        zip(current_meds, current_resolved)
+    ):
+        display_name.setdefault(ingredient, typed)
+
     pairs = set()
-    for new_med in new_meds:
-        for current_med in current_meds:
+    for new_med in new_resolved:
+        for current_med in current_resolved:
             if new_med == current_med:
-                continue  # same drug on both lists is not an interaction
+                continue  # same ingredient on both lists is not an interaction
             pairs.add(_normalize_pair(new_med, current_med))
 
     if not pairs:
@@ -312,18 +339,23 @@ def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
 
     resolved, unknown = _resolve_known_pairs(pairs)
 
-    # Only unknown pairs reach the external API, and only if a key is set.
+    # Only pairs nothing local can answer reach an external source.
     newly_cached = []
     for pair in sorted(unknown):
-        text = lookup_interaction_externally(pair[0], pair[1])
-        if text is None:
-            # Lookup unavailable or failed -- do not cache, so a transient
-            # outage is not baked in as "no interaction".
+        finding = lookup_interaction_externally(pair[0], pair[1])
+        if finding is None:
+            # No source could be reached -- do not cache, so a transient outage
+            # is never baked in as "no interaction".
             continue
-        stored = None if NO_INTERACTION_SENTINEL.lower() in text.lower() else text
-        resolved[pair] = stored
+        resolved[pair] = finding
         newly_cached.append(
-            InteractionLookupCache(drug_1=pair[0], drug_2=pair[1], interaction=stored)
+            InteractionLookupCache(
+                drug_1=pair[0],
+                drug_2=pair[1],
+                interaction=finding.description if finding.has_interaction else None,
+                severity=finding.severity,
+                source=finding.source,
+            )
         )
 
     if newly_cached:
@@ -333,18 +365,32 @@ def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
 
     interactions = []
     audit_rows = []
-    for pair, text in resolved.items():
-        if not text:
-            continue  # cached negative, or explicitly "no known interaction"
-        interactions.append({"drug_1": pair[0], "drug_2": pair[1], "interaction": text})
+    for pair, finding in resolved.items():
+        if not finding.has_interaction or not finding.description:
+            continue  # checked, nothing significant found
+        drug_1 = display_name.get(pair[0], pair[0])
+        drug_2 = display_name.get(pair[1], pair[1])
+        interactions.append(
+            {
+                "drug_1": drug_1,
+                "drug_2": drug_2,
+                "interaction": finding.description,
+                "severity": finding.severity,
+                "source": finding.source,
+                "management": finding.management,
+            }
+        )
         audit_rows.append(
             SavedInteraction(
                 patient=patient,
                 prescription=prescription,
                 checked_by=user if user and user.is_authenticated else None,
-                drug_1=pair[0],
-                drug_2=pair[1],
-                interaction_description=text,
+                drug_1=drug_1,
+                drug_2=drug_2,
+                interaction_description=finding.description,
+                severity=finding.severity,
+                source=finding.source,
+                management_recommendation=finding.management,
             )
         )
 
@@ -355,7 +401,15 @@ def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
         with transaction.atomic():
             SavedInteraction.objects.bulk_create(audit_rows)
 
-    interactions.sort(key=lambda row: (row["drug_1"], row["drug_2"]))
+    # Most dangerous first: a contraindication must never be buried under a
+    # list of minor interactions.
+    interactions.sort(
+        key=lambda row: (
+            -SEVERITY_RANK.get(row["severity"], 0),
+            row["drug_1"],
+            row["drug_2"],
+        )
+    )
     return interactions
 
 

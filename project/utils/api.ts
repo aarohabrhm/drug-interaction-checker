@@ -118,12 +118,33 @@ export interface DrugInteraction {
   interaction: string;
 }
 
+/** Clinical significance, most urgent first. `unknown` means the source gave no
+ *  grading -- it is NOT a synonym for "safe". */
+export type Severity = 'contraindicated' | 'major' | 'moderate' | 'minor' | 'unknown';
+
+/** Where an interaction statement came from. `ai_unverified` must always be
+ *  visually distinguished from curated data. */
+export type InteractionSourceId = 'dataset' | 'openfda' | 'ai_unverified';
+
+export const SEVERITY_RANK: Record<Severity, number> = {
+  contraindicated: 4,
+  major: 3,
+  moderate: 2,
+  minor: 1,
+  unknown: 0,
+};
+
 /** A warning as stored against a prescription or patient history. */
 export interface InteractionWarning {
   id: number;
   drug_1: string;
   drug_2: string;
   interaction_description: string;
+  severity: Severity;
+  severity_label: string;
+  source: InteractionSourceId;
+  source_label: string;
+  management_recommendation: string;
   checked_at: string;
 }
 
