@@ -40,33 +40,64 @@ docker-compose.yml  local full stack
 
 - Python 3.11+
 - Node.js 20+ (developed against 22)
-- PostgreSQL 14+
+- PostgreSQL 14+ — **only for production**. Local development falls back to
+  SQLite automatically.
 
-## Running locally
+## Quickstart
 
-### 1. Backend
+No database to install, no API keys, no accounts to register:
 
 ```bash
+# Backend
 cd backend
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env             # then edit it — see below
+export DJANGO_SECRET_KEY=dev-only-key      # Windows: set DJANGO_SECRET_KEY=...
+export DJANGO_DEBUG=true
+
 python manage.py migrate
-python manage.py createsuperuser # optional, for /admin
+python manage.py seed_demo                 # demo doctor, patients, dataset
 python manage.py runserver
 ```
 
-The app **will not start** until the required variables in `.env` are set. That
-is deliberate — it fails immediately with a named variable instead of
-misbehaving later. At minimum you need:
+```bash
+# Frontend, in a second terminal
+cd project
+npm install
+npm run dev                                # http://localhost:5173
+```
+
+`seed_demo` prints the login it created. Sign in, open **Margaret Hale**, and
+prescribe `clarithromycin` — you should get a *Contraindicated* warning against
+her statin, and a *Major* one for `aspirin` against her anticoagulant. Her
+medications are recorded under brand names (*Coumadin*, *Zocor*), so this also
+exercises the name-normalization layer.
+
+Useful variations:
+
+```bash
+python manage.py seed_demo --password mypassword   # choose the password
+python manage.py seed_demo --reset                 # wipe demo data and rebuild
+```
+
+## Configuration
+
+With `DJANGO_DEBUG=true` and no `DATABASE_URL`, the app uses a local SQLite file
+at `backend/db.sqlite3` and says so on startup. **With `DJANGO_DEBUG=false` it
+refuses to start** unless the required variables are set — it fails immediately
+naming the missing variable, rather than silently writing patient data to a
+throwaway file.
+
+Required in production:
 
 ```env
 DJANGO_SECRET_KEY=<generate one, see below>
-DJANGO_DEBUG=true
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-DATABASE_URL=postgres://user:password@localhost:5432/drug_checker
+DJANGO_DEBUG=false
+DJANGO_ALLOWED_HOSTS=safemeds.example.com
+DATABASE_URL=postgres://user:password@host:5432/drug_checker
+CORS_ALLOWED_ORIGINS=https://safemeds.example.com
 ```
 
 Generate a secret key:
@@ -75,8 +106,9 @@ Generate a secret key:
 python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"
 ```
 
-`GEMINI_API_KEY` is optional. Without it the API answers from the local dataset
-only and logs a warning; it does not crash.
+`GEMINI_API_KEY` is optional; without it the app uses the local dataset and
+openFDA only, logs a warning, and does not crash. See `backend/.env.example`
+for the full list.
 
 ### 2. Frontend
 
@@ -181,6 +213,27 @@ Errors share one shape:
 ```json
 { "error": { "code": "validation_error", "message": "…", "details": { "fields": {} } } }
 ```
+
+### Incomplete screening
+
+Interaction responses always carry `screening_complete` and `unscreened_pairs`.
+A pair whose sources were all unreachable is reported as **unscreened**, never
+omitted:
+
+```json
+{
+  "interactions": [],
+  "unscreened_pairs": [{ "drug_1": "warfarin", "drug_2": "someunknowndrug" }],
+  "screening_complete": false
+}
+```
+
+An empty `interactions` list therefore does **not** mean "clear" on its own —
+check `screening_complete` first. Prescriptions persist the same fact in
+`unscreened_pair_count`, so the clinical record shows when a prescription was
+issued without full screening. Treating "we could not check" as "nothing found"
+is the most dangerous mistake this app could make, so it is surfaced everywhere:
+API, prescribing screen, and history.
 
 Tokens expire after `AUTH_TOKEN_TTL_HOURS` (default 12) and are rotated on every
 login.

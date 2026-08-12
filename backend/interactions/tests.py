@@ -711,6 +711,108 @@ class SeverityAndProvenanceTests(APITestCase):
         self.assertEqual(row["source_label"], "Curated dataset")
 
 
+class UnscreenedPairReportingTests(APITestCase):
+    """A pair nobody could check must never be reported as clear.
+
+    Before this, `_check_pairs` silently dropped pairs whose lookup failed, so
+    the response was indistinguishable from "checked, nothing found".
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="drgap", password="correct-horse-battery")
+        self.patient = PatientList.objects.create(
+            doctor=self.user,
+            name="Gap Patient",
+            age=61,
+            medical_condition="Various",
+            phone_number="5557770001",
+            email="gap@example.com",
+            current_medications="warfarin, metformin",
+        )
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}"
+        )
+        self.check_url = reverse("check_prescription_interactions")
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_check_reports_unscreened_pairs(self, _mock):
+        response = self.client.post(
+            self.check_url,
+            {"patient_id": self.patient.id, "new_medications": ["mysterydrug"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["interactions"], [])
+        self.assertFalse(response.data["screening_complete"])
+        self.assertEqual(len(response.data["unscreened_pairs"]), 2)
+        # Must NOT claim a clean result.
+        self.assertNotIn("message", response.data)
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_partial_coverage_is_reported_alongside_findings(self, _mock):
+        """Some pairs resolved locally, others unreachable -- both are reported."""
+        DrugInteraction.objects.create(
+            drug_1="mysterydrug", drug_2="warfarin",
+            interaction="Known risk.", severity=Severity.MAJOR,
+        )
+        response = self.client.post(
+            self.check_url,
+            {"patient_id": self.patient.id, "new_medications": ["mysterydrug"]},
+            format="json",
+        )
+        self.assertEqual(len(response.data["interactions"]), 1)
+        self.assertEqual(len(response.data["unscreened_pairs"]), 1)  # vs metformin
+        self.assertFalse(response.data["screening_complete"])
+
+    def test_complete_screen_is_reported_as_complete(self):
+        response = self.client.post(
+            self.check_url,
+            {"patient_id": self.patient.id, "new_medications": ["warfarin"]},
+            format="json",
+        )
+        # warfarin vs warfarin is skipped; warfarin vs metformin resolves to a
+        # cached negative via the external stub being unnecessary.
+        self.assertIn("screening_complete", response.data)
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_prescription_records_unscreened_count(self, _mock):
+        response = self.client.post(
+            reverse("prescriptions"),
+            {
+                "patient": self.patient.id,
+                "diagnosis": "Test",
+                "items": [{"drug_name": "mysterydrug"}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["unscreened_pair_count"], 2)
+        self.assertFalse(response.data["screening_complete"])
+        # Persisted, so the record still shows incomplete screening on reload.
+        self.assertEqual(Prescription.objects.get().unscreened_pair_count, 2)
+
+    def test_fully_screened_prescription_reports_complete(self):
+        DrugInteraction.objects.create(
+            drug_1="aspirin", drug_2="warfarin",
+            interaction="Bleeding risk.", severity=Severity.MAJOR,
+        )
+        DrugInteraction.objects.create(
+            drug_1="aspirin", drug_2="metformin",
+            interaction="Minor.", severity=Severity.MINOR,
+        )
+        response = self.client.post(
+            reverse("prescriptions"),
+            {
+                "patient": self.patient.id,
+                "diagnosis": "Test",
+                "items": [{"drug_name": "aspirin"}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.data["unscreened_pair_count"], 0)
+        self.assertTrue(response.data["screening_complete"])
+
+
 class OpenFdaServiceTests(APITestCase):
     """openFDA is consulted before the LLM and must fail safe."""
 

@@ -136,14 +136,18 @@ export default function PrescriptionHistory() {
                   ))}
                 </ul>
 
-                {prescription.warnings.length > 0 ? (
+                {prescription.warnings.length > 0 ||
+                prescription.unscreened_pair_count > 0 ? (
                   <>
                     <p className="text-xs text-gray-500 mb-2">
                       Flagged at the time of prescribing:
                     </p>
                     {/* Same component as the prescribing screen, so a warning
                         looks identical wherever the doctor meets it. */}
-                    <InteractionWarnings warnings={prescription.warnings} />
+                    <InteractionWarnings
+                      warnings={prescription.warnings}
+                      unscreenedCount={prescription.unscreened_pair_count}
+                    />
                   </>
                 ) : (
                   <p className="text-xs text-gray-500">

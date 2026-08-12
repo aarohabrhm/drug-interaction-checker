@@ -290,8 +290,14 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
             <p className="text-gray-500">Saving and checking interactions...</p>
           ) : (
             // `unavailable` keeps a failed check visually distinct from a clean
-            // one -- an empty list after an error is not an all-clear.
-            <InteractionWarnings warnings={interaction} unavailable={Boolean(checkError)} />
+            // one -- an empty list after an error is not an all-clear. The
+            // unscreened count covers the partial case: saved fine, but some
+            // pairs could not be looked up.
+            <InteractionWarnings
+              warnings={interaction}
+              unavailable={Boolean(checkError)}
+              unscreenedCount={savedPrescription?.unscreened_pair_count ?? 0}
+            />
           )}
           {checkError && (
             <p className="text-sm text-red-700 bg-red-50 p-3 rounded mt-3">{checkError}</p>

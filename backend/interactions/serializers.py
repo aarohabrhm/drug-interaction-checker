@@ -128,6 +128,7 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     items = PrescriptionItemSerializer(many=True)
     warnings = serializers.SerializerMethodField()
     patient_name = serializers.CharField(source="patient.name", read_only=True)
+    screening_complete = serializers.BooleanField(read_only=True)
     prescribed_by_username = serializers.CharField(
         source="prescribed_by.username", read_only=True, default=None
     )
@@ -144,8 +145,18 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             "created_at",
             "items",
             "warnings",
+            # Exposed so a client cannot read an empty `warnings` list as an
+            # all-clear when screening was actually incomplete.
+            "unscreened_pair_count",
+            "screening_complete",
         ]
-        read_only_fields = ["id", "created_at", "warnings"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "warnings",
+            "unscreened_pair_count",
+            "screening_complete",
+        ]
 
     def get_warnings(self, obj):
         """Warnings, most severe first.

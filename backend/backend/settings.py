@@ -77,6 +77,11 @@ def _csv(name, default=()):
 
 DEBUG = _bool("DJANGO_DEBUG", False)
 
+# True while `manage.py test` is running. Used to keep the test suite off the
+# network and off stdout noise -- a unit test that silently depends on RxNorm or
+# openFDA being reachable is slow, flaky, and fails on a plane.
+TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
+
 SECRET_KEY = _require("DJANGO_SECRET_KEY", lenient_default="build-time-placeholder")
 
 if not DEBUG and SECRET_KEY.startswith("django-insecure-"):
@@ -196,9 +201,34 @@ AUTH_TOKEN_TTL_HOURS = _int("AUTH_TOKEN_TTL_HOURS", 12)
 
 # `conn_max_age` bounds connection reuse instead of opening a fresh connection
 # per request; `conn_health_checks` discards connections killed server-side.
+# In DEBUG, fall back to a local SQLite file so a fresh clone runs with no
+# database to install. Production keeps the fail-loud behaviour: an unset
+# DATABASE_URL there is a misconfiguration, and silently starting on a throwaway
+# SQLite file would look like it worked while writing patient data to a file
+# that vanishes with the container.
+_DEV_SQLITE_URL = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+
+_database_url = os.environ.get("DATABASE_URL", "").strip()
+USING_DEV_SQLITE = False
+if not _database_url:
+    if DEBUG:
+        _database_url = _DEV_SQLITE_URL
+        USING_DEV_SQLITE = True
+        if not TESTING:
+            # Said out loud, so nobody is confused about where their data went
+            # or reports "the app ignored my Postgres settings".
+            sys.stderr.write(
+                f"[safemeds] DATABASE_URL not set; using local SQLite at "
+                f"{BASE_DIR / 'db.sqlite3'} (DEBUG only).\n"
+            )
+    else:
+        _database_url = _require(
+            "DATABASE_URL", lenient_default="sqlite:///build-placeholder.sqlite3"
+        )
+
 DATABASES = {
     "default": dj_database_url.parse(
-        _require("DATABASE_URL", lenient_default="sqlite:///build-placeholder.sqlite3"),
+        _database_url,
         conn_max_age=_int("DATABASE_CONN_MAX_AGE", 60),
         conn_health_checks=True,
     )
@@ -318,11 +348,6 @@ else:
 # --------------------------------------------------------------------------- #
 # Interaction lookup sources
 # --------------------------------------------------------------------------- #
-
-# True while `manage.py test` is running. Used to keep the test suite off the
-# network by default -- a unit test that silently depends on RxNorm or openFDA
-# being reachable is slow and flaky, and fails on a plane.
-TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 
 # RxNorm (NIH): maps brand names to ingredient names so the dataset can match
 # them. Free, no auth. Results are cached permanently in DrugNameAlias.

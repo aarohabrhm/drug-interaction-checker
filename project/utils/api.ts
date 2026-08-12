@@ -159,6 +159,13 @@ export interface PrescriptionItem {
   duration: string;
 }
 
+/** A pair that no source could be reached for. Nothing is known about it --
+ *  it is NOT a pair that was checked and found clear. */
+export interface UnscreenedPair {
+  drug_1: string;
+  drug_2: string;
+}
+
 export interface Prescription {
   id: number;
   patient: number;
@@ -169,6 +176,8 @@ export interface Prescription {
   created_at: string;
   items: PrescriptionItem[];
   warnings: InteractionWarning[];
+  unscreened_pair_count: number;
+  screening_complete: boolean;
 }
 
 export function toPrescribedMedication(item: PrescriptionItem): PrescribedMedication {
@@ -182,6 +191,10 @@ export function toPrescribedMedication(item: PrescriptionItem): PrescribedMedica
 
 export interface InteractionResponse {
   interactions: DrugInteraction[];
+  /** Pairs no source could answer. A non-empty list means the screen was
+   *  incomplete, regardless of how many interactions were found. */
+  unscreened_pairs: UnscreenedPair[];
+  screening_complete: boolean;
   message?: string;
 }
 
@@ -375,15 +388,20 @@ export const checkPrescriptionInteractions = async (
   newMedications: string[]
 ): Promise<InteractionResponse> => {
   if (!newMedications || newMedications.length === 0) {
-    return { interactions: [] };
+    return { interactions: [], unscreened_pairs: [], screening_complete: true };
   }
   try {
     const response = await api.post("/api/prescriptions/check/", {
       patient_id: patientId,
       new_medications: newMedications,
     });
+    const unscreened = response.data.unscreened_pairs ?? [];
     return {
       interactions: response.data.interactions ?? [],
+      unscreened_pairs: unscreened,
+      // Defaults to the pessimistic reading if the field is absent, so an old
+      // or unexpected response never presents as a confirmed clean screen.
+      screening_complete: response.data.screening_complete ?? unscreened.length === 0,
       message: response.data.message,
     };
   } catch (error) {

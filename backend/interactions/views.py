@@ -295,16 +295,25 @@ def save_prescription_and_check_interactions(request):
     )
 
     try:
-        interactions = _check_pairs(patient, new_meds, current_meds, request.user)
+        interactions, unscreened = _check_pairs(
+            patient, new_meds, current_meds, request.user
+        )
     finally:
         # Always clear the draft, even if the check raised -- otherwise a failed
         # request leaves a stale row that blocks the next update_or_create path
         # from reflecting reality.
         TemporaryPrescription.objects.filter(patient=patient).delete()
 
-    if interactions:
-        return Response({"interactions": interactions})
-    return Response({"interactions": [], "message": "No interactions found"})
+    # `unscreened` is always present so a client cannot mistake an incomplete
+    # screen for a clean one by only reading `interactions`.
+    body = {
+        "interactions": interactions,
+        "unscreened_pairs": unscreened,
+        "screening_complete": not unscreened,
+    }
+    if not interactions and not unscreened:
+        body["message"] = "No interactions found"
+    return Response(body)
 
 
 def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
@@ -335,17 +344,21 @@ def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
             pairs.add(_normalize_pair(new_med, current_med))
 
     if not pairs:
-        return []
+        return [], []
 
     resolved, unknown = _resolve_known_pairs(pairs)
 
     # Only pairs nothing local can answer reach an external source.
     newly_cached = []
+    unscreened = []
     for pair in sorted(unknown):
         finding = lookup_interaction_externally(pair[0], pair[1])
         if finding is None:
-            # No source could be reached -- do not cache, so a transient outage
-            # is never baked in as "no interaction".
+            # No source could be reached. Do not cache -- a transient outage
+            # must never be baked in as "no interaction" -- and record the pair
+            # so the caller can say it went unchecked rather than reporting a
+            # silent all-clear for a pair nobody looked at.
+            unscreened.append(pair)
             continue
         resolved[pair] = finding
         newly_cached.append(
@@ -410,7 +423,22 @@ def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
             row["drug_2"],
         )
     )
-    return interactions
+
+    unscreened_display = [
+        {
+            "drug_1": display_name.get(pair[0], pair[0]),
+            "drug_2": display_name.get(pair[1], pair[1]),
+        }
+        for pair in unscreened
+    ]
+    if unscreened_display:
+        logger.warning(
+            "%d drug pair(s) could not be screened for patient %s -- all "
+            "lookup sources unavailable.",
+            len(unscreened_display),
+            patient.id,
+        )
+    return interactions, unscreened_display
 
 
 # --------------------------------------------------------------------------- #
@@ -485,16 +513,23 @@ def prescriptions(request):
     with transaction.atomic():
         prescription = serializer.save(prescribed_by=request.user)
 
-    interactions = _check_pairs(
+    interactions, unscreened = _check_pairs(
         patient, new_meds, current_meds, request.user, prescription=prescription
     )
 
+    if unscreened:
+        # Recorded on the prescription so the incompleteness survives in the
+        # clinical record, not just in this response.
+        prescription.unscreened_pair_count = len(unscreened)
+        prescription.save(update_fields=["unscreened_pair_count"])
+
     logger.info(
-        "Prescription %s issued for patient %s by %s (%d warning(s))",
+        "Prescription %s issued for patient %s by %s (%d warning(s), %d unscreened pair(s))",
         prescription.id,
         patient.id,
         request.user.username,
         len(interactions),
+        len(unscreened),
     )
 
     # Re-serialize so the response carries the warnings just written.

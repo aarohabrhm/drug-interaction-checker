@@ -231,6 +231,11 @@ class Prescription(models.Model):
     diagnosis = models.TextField()
     notes = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+    # How many drug pairs could not be screened when this was issued (all
+    # sources unreachable for that pair). Recorded on the prescription itself,
+    # because "this was issued with incomplete screening" is a fact about the
+    # clinical record, not a transient detail of one API response.
+    unscreened_pair_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ["-created_at"]
@@ -240,6 +245,15 @@ class Prescription(models.Model):
 
     def __str__(self):
         return f"Prescription for {self.patient.name} on {self.created_at:%Y-%m-%d}"
+
+    @property
+    def screening_complete(self):
+        """False when at least one drug pair went unscreened.
+
+        An incomplete screen is NOT an all-clear: the pairs that failed were
+        never evaluated, so nothing is known about them either way.
+        """
+        return self.unscreened_pair_count == 0
 
 
 class PrescriptionItem(models.Model):
