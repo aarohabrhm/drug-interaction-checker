@@ -1,181 +1,458 @@
+"""Patient and drug-interaction API.
 
+Security note: every endpoint here now requires authentication. The previous
+version marked all of them `@permission_classes([AllowAny])`, which meant
+`GET /api/patients/` returned every patient's name, age, phone number, email,
+medical condition and medication list to any unauthenticated caller on the
+internet.
+"""
 
-# API Key for Gemini
-GEMINI_API_KEY = ""
+import logging
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from rest_framework import status
-from .models import PatientList
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from .serializers import PatientSerializer
-from .models import PatientList, DrugInteraction, SavedInteraction, TemporaryPrescription
+from django.conf import settings
+from django.db import transaction
+from django.db.models import Q
+from django.db.models.functions import Lower
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
-import json
-import requests
-from rest_framework.request import Request
-from django.http import HttpRequest
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
-@api_view(['GET'])
-@permission_classes([AllowAny])  # ✅ Allow anyone to access this endpoint
+from .models import (
+    DrugInteraction,
+    InteractionLookupCache,
+    PatientList,
+    Prescription,
+    SavedInteraction,
+    TemporaryPrescription,
+    normalize_drug_name,
+)
+from .serializers import (
+    InteractionWarningSerializer,
+    PatientSerializer,
+    PrescriptionSerializer,
+)
+from .services import lookup_interaction_externally
+
+logger = logging.getLogger(__name__)
+
+NO_INTERACTION_SENTINEL = "There are no known significant interactions"
+
+
+class InteractionCheckThrottle(UserRateThrottle):
+    """Interaction checks can trigger outbound API calls -- rate limit them."""
+
+    scope = "interaction_check"
+
+
+class PatientPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+def _error(code, message, details=None, http_status=status.HTTP_400_BAD_REQUEST):
+    body = {"error": {"code": code, "message": message}}
+    if details:
+        body["error"]["details"] = details
+    return Response(body, status=http_status)
+
+
+def _normalize_pair(drug_a, drug_b):
+    """Order a pair deterministically so (a,b) and (b,a) share one cache row."""
+    return tuple(sorted([normalize_drug_name(drug_a), normalize_drug_name(drug_b)]))
+
+
+def _patients_for(user):
+    """Patients owned by `user`.
+
+    Single source of truth for patient scoping -- every patient read and write
+    goes through this. Legacy rows with a NULL doctor match no one, which is the
+    safe default for records whose owner is unknown.
+    """
+    return PatientList.objects.filter(doctor=user)
+
+
+def _get_owned_patient(user, patient_id):
+    """Fetch one of the user's patients, 404ing on anything else.
+
+    A patient belonging to another doctor is reported as missing rather than
+    forbidden, so the API cannot be used to enumerate patient ids.
+    """
+    return get_object_or_404(_patients_for(user), id=patient_id)
+
+
+# --------------------------------------------------------------------------- #
+# Patients
+# --------------------------------------------------------------------------- #
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def get_patients(request):
-    patients = PatientList.objects.all()
-    
-    patient_data = [
-        {
-            'id': str(patient.id),
-            'name': patient.name,
-            'age': patient.age,
-            'registered_date': patient.registered_date.isoformat(),
-            'medical_condition': patient.medical_condition,
-            'remarks': patient.remarks or '',
-            'phone_number': patient.phone_number,
-            'email': patient.email,
-            'current_medications': patient.current_medications,
-        }
-        for patient in patients
-    ]
-    return Response(patient_data)
+    """Paginated patient list, optionally filtered by `?search=`.
+
+    Previously returned every patient in one unbounded, unauthenticated
+    response.
+    """
+    queryset = _patients_for(request.user).order_by("-registered_date")
+
+    search = (request.query_params.get("search") or "").strip()
+    if search:
+        # Parameterized ORM lookups -- no string interpolation into SQL.
+        queryset = queryset.filter(
+            Q(name__icontains=search)
+            | Q(phone_number__icontains=search)
+            | Q(medical_condition__icontains=search)
+        )
+
+    paginator = PatientPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    serializer = PatientSerializer(page, many=True)
+    return paginator.get_paginated_response(serializer.data)
 
 
-@csrf_exempt  # Disable CSRF protection for testing
-@api_view(['POST'])
-@permission_classes([AllowAny])  # ✅ Allow anyone to add patients (No authentication needed)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def add_patient(request):
-    serializer = PatientSerializer(data=request.data)  # Validate incoming data
-    if serializer.is_valid():
-        serializer.save()  # Save to DB
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    """Create a patient record, owned by the requesting doctor.
 
-
-
-# Helper: Normalize drug pair order (alphabetical, case-insensitive)
-def normalize_pair(drug1, drug2):
-    return tuple(sorted([drug1.strip().lower(), drug2.strip().lower()]))
-
-# Helper: Check for a saved interaction
-def check_saved_interaction(drug1, drug2):
-    pair = normalize_pair(drug1, drug2)
-    saved = SavedInteraction.objects.filter(
-        drug_1__iexact=pair[0],
-        drug_2__iexact=pair[1]
-    ).first()
-    if saved:
-        return saved.interaction_description
-    return None
-
-# Helper: Check the pre-loaded DrugInteraction model
-def check_drug_interaction(drug1, drug2):
-    pair = normalize_pair(drug1, drug2)
-    interaction = DrugInteraction.objects.filter(
-        drug_1__iexact=pair[0],
-        drug_2__iexact=pair[1]
-    ).first()
-    if interaction:
-        return interaction.interaction
-    return None
-
-# Helper: Query Gemini API for interaction between two drugs
-def query_gemini_for_interaction(drug1, drug2):
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [
-            {"parts": [{"text": f"What are the interactions between {drug1} and {drug2}?. Respond in 1 line"}]}
-        ]
-    }
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "").strip()
-        return None
-    except Exception as e:
-        print("Gemini API error:", e)
-        return None
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def save_prescription_and_check_interactions(request):
+    The `@csrf_exempt` decorator the original carried was both ineffective (DRF
+    token auth is CSRF-exempt already) and misleading, so it is gone.
     """
-    Saves newly prescribed medicines and current medications in TemporaryPrescription.
-    Then, checks interactions.
+    serializer = PatientSerializer(data=request.data, context={"doctor": request.user})
+    if not serializer.is_valid():
+        return _error(
+            "validation_error",
+            "The submitted data was invalid.",
+            {"fields": serializer.errors},
+        )
+    # Ownership comes from the authenticated user, never the payload.
+    patient = serializer.save(doctor=request.user)
+    logger.info("Patient %s created by user %s", patient.id, request.user.username)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAuthenticated])
+def patient_detail(request, patient_id):
+    """Read or update a single patient."""
+    patient = _get_owned_patient(request.user, patient_id)
+
+    if request.method == "GET":
+        return Response(PatientSerializer(patient).data)
+
+    serializer = PatientSerializer(
+        patient, data=request.data, partial=True, context={"doctor": request.user}
+    )
+    if not serializer.is_valid():
+        return _error(
+            "validation_error",
+            "The submitted data was invalid.",
+            {"fields": serializer.errors},
+        )
+    serializer.save()
+    logger.info("Patient %s updated by user %s", patient.id, request.user.username)
+    return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def patient_interaction_history(request, patient_id):
+    """Warnings previously raised for this patient.
+
+    `SavedInteraction` rows have been accumulating since the audit but no
+    endpoint ever read them back; this is that endpoint.
     """
-    patient_id = request.data.get("patient_id")
-    new_medications = request.data.get("new_medications", [])  # List of new meds
+    patient = _get_owned_patient(request.user, patient_id)
+    queryset = patient.saved_interactions.all().order_by("-checked_at")
 
-    if not patient_id or not new_medications:
-        return Response({"error": "Patient ID and new medications are required."}, status=400)
-
-    # Fetch current medications of the patient
-    patient = get_object_or_404(PatientList, id=patient_id)
-    current_medications = patient.current_medications  # Stored as a comma-separated string
-
-    # Save in temporary database
-    TemporaryPrescription.objects.update_or_create(
-        patient_id=patient_id,
-        defaults={
-            "new_medications": ",".join(new_medications),
-            "current_medications": current_medications
-        }
+    paginator = PatientPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    return paginator.get_paginated_response(
+        InteractionWarningSerializer(page, many=True).data
     )
 
-    # Proceed to interaction checking
-    return check_interactions(request, patient_id)
 
-def check_interactions(request, patient_id):
-    django_request = request._request
+# --------------------------------------------------------------------------- #
+# Interaction checking
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_known_pairs(pairs):
+    """Bulk-resolve drug pairs against local tables.
+
+    Returns `(resolved, unknown)` where `resolved` maps a normalized pair to its
+    interaction text (or None for a cached "no interaction"), and `unknown` is
+    the set of pairs no local table can answer.
+
+    This replaces a nested loop that issued two queries per pair -- 25 new x 50
+    current medications meant 2,500 queries plus up to 1,250 external API calls
+    inside a single request. It is now two queries total.
     """
-    Compares new and current medications for interactions and returns all detected interactions.
-    """
-    temp_prescription = get_object_or_404(TemporaryPrescription, patient_id=patient_id)
+    if not pairs:
+        return {}, set()
 
-    new_meds = temp_prescription.new_medications.split(",")
-    current_meds = temp_prescription.current_medications.split(",")
+    names = {name for pair in pairs for name in pair}
+    resolved = {}
 
-    interactions = []  # Store all detected interactions
+    # One query for the cache table (already stored normalized).
+    cache_rows = InteractionLookupCache.objects.filter(
+        drug_1__in=names, drug_2__in=names
+    ).values_list("drug_1", "drug_2", "interaction")
+    for drug_1, drug_2, interaction in cache_rows:
+        key = tuple(sorted([drug_1, drug_2]))
+        if key in pairs:
+            resolved[key] = interaction
 
-    for new_med in new_meds:
-        for current_med in current_meds:
-            drug1, drug2 = new_med.strip(), current_med.strip()
+    # One query for the curated dataset. Lowercase both sides so a single
+    # index-backed IN filter covers every pair regardless of stored casing.
+    remaining = pairs - resolved.keys()
+    if remaining:
+        dataset_rows = (
+            DrugInteraction.objects.annotate(
+                d1=Lower("drug_1"), d2=Lower("drug_2")
+            )
+            .filter(d1__in=names, d2__in=names)
+            .values_list("d1", "d2", "interaction")
+        )
+        for drug_1, drug_2, interaction in dataset_rows:
+            key = tuple(sorted([drug_1, drug_2]))
+            if key in remaining and key not in resolved:
+                resolved[key] = interaction
 
-            # 1. Check SavedInteraction DB
-            saved_interaction = check_saved_interaction(drug1, drug2)
-            if saved_interaction and "There are no known significant interactions" not in saved_interaction:
-                interactions.append({"drug_1": drug1, "drug_2": drug2, "interaction": saved_interaction})
-                continue  # Skip further checks for this pair
+    return resolved, pairs - resolved.keys()
 
-            # 2. Check DrugInteraction DB
-            db_interaction = check_drug_interaction(drug1, drug2)
-            if db_interaction:
-                interactions.append({"drug_1": drug1, "drug_2": drug2, "interaction": db_interaction})
-                continue  # Skip further checks for this pair
 
-            # 3. Check with Gemini API
-            gemini_interaction = query_gemini_for_interaction(drug1, drug2)
-            if gemini_interaction:
-                if "There are no known significant interactions" not in gemini_interaction:
-                    interactions.append({"drug_1": drug1, "drug_2": drug2, "interaction": gemini_interaction})
-                    continue  # Skip further checks for this pair
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([InteractionCheckThrottle])
+def save_prescription_and_check_interactions(request):
+    """Check newly prescribed medications against a patient's current ones."""
+    patient_id = request.data.get("patient_id")
+    new_medications = request.data.get("new_medications")
 
-                # Save non-significant interactions
-                SavedInteraction.objects.create(
-                    drug_1=drug1, drug_2=drug2, interaction_description="There are no known significant interactions"
-                )
+    if patient_id in (None, ""):
+        return _error("validation_error", "patient_id is required.")
 
-    # Clear temporary data after processing
-    temp_prescription.delete()
+    try:
+        patient_id = int(patient_id)
+    except (TypeError, ValueError):
+        return _error("validation_error", "patient_id must be an integer.")
 
-    # Return all found interactions
+    if not isinstance(new_medications, list) or not new_medications:
+        return _error(
+            "validation_error", "new_medications must be a non-empty list of names."
+        )
+
+    if not all(isinstance(item, str) for item in new_medications):
+        return _error("validation_error", "new_medications must contain only strings.")
+
+    # Bound the fan-out. Without this, a caller controls how many external API
+    # calls one request makes.
+    max_new = settings.MAX_NEW_MEDICATIONS
+    if len(new_medications) > max_new:
+        return _error(
+            "too_many_medications",
+            f"At most {max_new} new medications can be checked in one request.",
+        )
+
+    new_meds = []
+    for raw in new_medications:
+        name = normalize_drug_name(raw)
+        if name and name not in new_meds:
+            new_meds.append(name)
+
+    if not new_meds:
+        return _error("validation_error", "new_medications contained no usable names.")
+
+    patient = _get_owned_patient(request.user, patient_id)
+    current_meds = patient.medication_list()[: settings.MAX_CURRENT_MEDICATIONS]
+
+    # Persist the in-flight draft, as before, but keyed on a real FK.
+    TemporaryPrescription.objects.update_or_create(
+        patient=patient,
+        defaults={
+            "new_medications": ",".join(new_meds),
+            "current_medications": ",".join(current_meds),
+        },
+    )
+
+    try:
+        interactions = _check_pairs(patient, new_meds, current_meds, request.user)
+    finally:
+        # Always clear the draft, even if the check raised -- otherwise a failed
+        # request leaves a stale row that blocks the next update_or_create path
+        # from reflecting reality.
+        TemporaryPrescription.objects.filter(patient=patient).delete()
+
     if interactions:
         return Response({"interactions": interactions})
+    return Response({"interactions": [], "message": "No interactions found"})
 
-    return Response({"message": "No interactions found"})
+
+def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
+    """Resolve every new x current pair and record what was found.
+
+    `prescription` links the recorded warnings to the prescription that raised
+    them; it is None for a standalone check that issues nothing.
+    """
+    pairs = set()
+    for new_med in new_meds:
+        for current_med in current_meds:
+            if new_med == current_med:
+                continue  # same drug on both lists is not an interaction
+            pairs.add(_normalize_pair(new_med, current_med))
+
+    if not pairs:
+        return []
+
+    resolved, unknown = _resolve_known_pairs(pairs)
+
+    # Only unknown pairs reach the external API, and only if a key is set.
+    newly_cached = []
+    for pair in sorted(unknown):
+        text = lookup_interaction_externally(pair[0], pair[1])
+        if text is None:
+            # Lookup unavailable or failed -- do not cache, so a transient
+            # outage is not baked in as "no interaction".
+            continue
+        stored = None if NO_INTERACTION_SENTINEL.lower() in text.lower() else text
+        resolved[pair] = stored
+        newly_cached.append(
+            InteractionLookupCache(drug_1=pair[0], drug_2=pair[1], interaction=stored)
+        )
+
+    if newly_cached:
+        # ignore_conflicts guards against a concurrent request caching the same
+        # pair between our read and this write.
+        InteractionLookupCache.objects.bulk_create(newly_cached, ignore_conflicts=True)
+
+    interactions = []
+    audit_rows = []
+    for pair, text in resolved.items():
+        if not text:
+            continue  # cached negative, or explicitly "no known interaction"
+        interactions.append({"drug_1": pair[0], "drug_2": pair[1], "interaction": text})
+        audit_rows.append(
+            SavedInteraction(
+                patient=patient,
+                prescription=prescription,
+                checked_by=user if user and user.is_authenticated else None,
+                drug_1=pair[0],
+                drug_2=pair[1],
+                interaction_description=text,
+            )
+        )
+
+    if audit_rows:
+        # The original called SavedInteraction.objects.create() without a
+        # `patient`, which raises IntegrityError against a non-null FK -- the
+        # caching path crashed every time it was reached.
+        with transaction.atomic():
+            SavedInteraction.objects.bulk_create(audit_rows)
+
+    interactions.sort(key=lambda row: (row["drug_1"], row["drug_2"]))
+    return interactions
+
+
+# --------------------------------------------------------------------------- #
+# Prescriptions
+# --------------------------------------------------------------------------- #
+
+
+def _prescriptions_for(user):
+    """Prescriptions for patients owned by `user`.
+
+    `select_related`/`prefetch_related` keep the list endpoint at a constant
+    number of queries rather than one per prescription for the patient name,
+    plus one each for items and warnings.
+    """
+    return (
+        Prescription.objects.filter(patient__doctor=user)
+        .select_related("patient", "prescribed_by")
+        .prefetch_related("items", "warnings")
+    )
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([InteractionCheckThrottle])
+def prescriptions(request):
+    """List prescriptions, or issue a new one.
+
+    Creating a prescription runs the interaction check and stores the
+    prescription, its medication lines and any warnings raised -- all in one
+    transaction, so a prescription can never be recorded without the warnings
+    that accompanied it, or vice versa.
+    """
+    if request.method == "GET":
+        queryset = _prescriptions_for(request.user)
+
+        patient_id = request.query_params.get("patient")
+        if patient_id:
+            try:
+                queryset = queryset.filter(patient_id=int(patient_id))
+            except (TypeError, ValueError):
+                return _error("validation_error", "patient must be an integer id.")
+
+        paginator = PatientPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        return paginator.get_paginated_response(
+            PrescriptionSerializer(page, many=True).data
+        )
+
+    serializer = PrescriptionSerializer(
+        data=request.data,
+        context={"doctor": request.user, "max_items": settings.MAX_NEW_MEDICATIONS},
+    )
+    if not serializer.is_valid():
+        return _error(
+            "validation_error",
+            "The submitted data was invalid.",
+            {"fields": serializer.errors},
+        )
+
+    patient = serializer.validated_data["patient"]
+    new_meds = []
+    for item in serializer.validated_data["items"]:
+        name = normalize_drug_name(item["drug_name"])
+        if name and name not in new_meds:
+            new_meds.append(name)
+
+    current_meds = patient.medication_list()[: settings.MAX_CURRENT_MEDICATIONS]
+
+    # The external lookups inside _check_pairs are deliberately outside the
+    # transaction below -- holding a database transaction open across a network
+    # call to Gemini would pin a connection for the length of that call.
+    with transaction.atomic():
+        prescription = serializer.save(prescribed_by=request.user)
+
+    interactions = _check_pairs(
+        patient, new_meds, current_meds, request.user, prescription=prescription
+    )
+
+    logger.info(
+        "Prescription %s issued for patient %s by %s (%d warning(s))",
+        prescription.id,
+        patient.id,
+        request.user.username,
+        len(interactions),
+    )
+
+    # Re-serialize so the response carries the warnings just written.
+    prescription.refresh_from_db()
+    return Response(
+        PrescriptionSerializer(prescription).data, status=status.HTTP_201_CREATED
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def prescription_detail(request, prescription_id):
+    """One prescription with its medications and warnings."""
+    prescription = get_object_or_404(_prescriptions_for(request.user), id=prescription_id)
+    return Response(PrescriptionSerializer(prescription).data)

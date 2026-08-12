@@ -1,12 +1,17 @@
 // pages/index.tsx
 import { useState, useEffect } from 'react';
-import Head from 'next/head';
+import { useDocumentMeta } from '../lib/useDocumentMeta';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
 export default function Home() {
   const [isScrolled, setIsScrolled] = useState(false);
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
+
+  useDocumentMeta(
+    'SafeMeds | Prescription Management for Doctors',
+    'Intelligent prescription management with drug interaction checking'
+  );
 
   useEffect(() => {
     const handleScroll = () => {
@@ -42,12 +47,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100">
-      <Head>
-        <title>SafeMeds | Prescription Management for Doctors</title>
-        <meta name="description" content="Intelligent prescription management with drug interaction checking" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-
       {/* Navigation */}
       <nav className={`fixed w-full z-50 transition-all duration-300 ${isScrolled ? 'bg-white/80 backdrop-blur-md shadow-md' : 'bg-transparent'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

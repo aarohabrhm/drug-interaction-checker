@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+dist/
+dist-ssr/
+.vite/
+
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+*.log
+.DS_Store

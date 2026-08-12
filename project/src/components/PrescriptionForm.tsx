@@ -3,19 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, X } from 'lucide-react';
 import { Button } from './Button';
 import { Input } from './Input';
-import type { DrugInteraction, Patient, PrescribedMedication } from "../../utils/api";
-import { checkPrescriptionInteractions } from "../../utils/api";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-
+import type {
+  InteractionWarning,
+  Patient,
+  PrescribedMedication,
+  Prescription,
+} from "../../utils/api";
+import { createPrescription } from "../../utils/api";
 
 interface PrescriptionFormProps {
   patients: Patient[];
-  onSubmit: (prescription: any) => void;
-  isSubmitting?: boolean;
+  /** Called with the saved prescription once it has been persisted. */
+  onSaved?: (prescription: Prescription) => void;
 }
 
-export function PrescriptionForm({ patients, onSubmit }: PrescriptionFormProps) {
+export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
   const [selectedPatient, setSelectedPatient] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
   const [medications, setMedications] = useState<PrescribedMedication[]>([]);
@@ -30,12 +32,21 @@ export function PrescriptionForm({ patients, onSubmit }: PrescriptionFormProps) 
   const navigate = useNavigate(); 
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [interaction, setInteraction] = useState<DrugInteraction[]>([]);
+  const [interaction, setInteraction] = useState<InteractionWarning[]>([]);
   const [showProceedButton, setShowProceedButton] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [savedPrescription, setSavedPrescription] = useState<Prescription | null>(null);
 
-  const generatePDF = () => {
+  const generatePDF = async () => {
+    // jsPDF + autotable are ~400kB. Loading them on demand keeps them out of
+    // the initial bundle for a screen the doctor may never print from.
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+
     const doc = new jsPDF();
-  
+
     // Find selected patient details
     const patient = patients.find((p) => p.id === (selectedPatient));
   
@@ -94,38 +105,34 @@ export function PrescriptionForm({ patients, onSubmit }: PrescriptionFormProps) 
     setLoading(true);
     setFormSubmitted(true);
     setInteraction([]);
-    setShowProceedButton(true);
+    setCheckError(null);
+    setShowProceedButton(false);
 
-    // Extract only medication names
-    const medNames = medications.map((med) => med.name);
-
-    if (medNames.length > 0) {  // ✅ Only send request if there are medications
-        try {
-            const result = await checkPrescriptionInteractions(Number(selectedPatient), medNames);
-            console.log("API Response:", result);
-            if (result) {
-              setInteraction(result.interactions || []);
-          }
-
-            
-            
-        } catch (error) {
-            console.error("Error checking interactions:", error);
-        }
-    }
-
-    setLoading(false);
-
-    // Save prescription (even if no interaction is found)
-    const prescription = {
-        id: Date.now().toString(),
-        patientId: selectedPatient,
-        date: new Date().toISOString(),
+    try {
+      // One call: the server saves the prescription and screens it in the same
+      // transaction, then returns the warnings it raised. Previously the
+      // prescription was never stored at all and the check ran twice.
+      const saved = await createPrescription({
+        patientId: Number(selectedPatient),
         diagnosis,
-        medications
-    };
-    onSubmit(prescription);
-};
+        medications,
+      });
+      setSavedPrescription(saved);
+      setInteraction(saved.warnings);
+      onSaved?.(saved);
+      // Only offer the PDF once the prescription actually saved -- otherwise a
+      // doctor could print a prescription that was never recorded or screened.
+      setShowProceedButton(true);
+    } catch (error) {
+      setCheckError(
+        error instanceof Error
+          ? `${error.message} The prescription was not saved or screened.`
+          : "Failed to save the prescription."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
 
 
@@ -251,12 +258,12 @@ export function PrescriptionForm({ patients, onSubmit }: PrescriptionFormProps) 
                 Generate Prescription
               </Button>
               {showProceedButton && (
-                <Button 
-                onClick={(e) => {
-                  e.stopPropagation(); // Prevents triggering other events
-                  generatePDF(); // Just generate the PDF without changing state
-                }} 
-             
+                <Button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void generatePDF();
+                  }}
                   className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
                 >
                   Proceed
@@ -271,9 +278,18 @@ export function PrescriptionForm({ patients, onSubmit }: PrescriptionFormProps) 
       {formSubmitted && (
         <div className="w-full min-w-[500px] bg-white p-4 rounded shadow">
           <h2 className="text-xl max-w-full font-semibold mb-4">Drug Interactions</h2>
+          {savedPrescription && (
+            <p className="mb-4 text-sm text-green-700 bg-green-50 p-3 rounded">
+              Prescription #{savedPrescription.id} saved for{' '}
+              {savedPrescription.patient_name} on{' '}
+              {new Date(savedPrescription.created_at).toLocaleString()}.
+            </p>
+          )}
           {loading ? (
-          <p className="text-gray-500">Checking interactions...</p>
-        ) : interaction.length > 0 ? ( // ✅ Check if there are interactions
+          <p className="text-gray-500">Saving and checking interactions...</p>
+        ) : checkError ? (
+          <p className="text-red-600 bg-red-50 p-3 rounded">{checkError}</p>
+        ) : interaction.length > 0 ? (
           <table className="w-full border">
             <thead>
               <tr className="bg-gray-200">
@@ -283,11 +299,16 @@ export function PrescriptionForm({ patients, onSubmit }: PrescriptionFormProps) 
               </tr>
             </thead>
             <tbody>
+              {/* Every row the API returns is a real interaction -- it filters
+                  out "no known interaction" results server-side. The old
+                  substring test on "no" mis-coloured warnings green for any
+                  text containing that substring ("not recommended",
+                  "norepinephrine"). */}
               {interaction.map((interaction, index) => (
-                  <tr key={index} className={interaction.interaction.toLowerCase().includes("no") ? "bg-green-200" : "bg-red-200"}>
+                  <tr key={index} className="bg-red-200">
                     <td className="border p-2">{interaction.drug_1}</td>
                     <td className="border p-2">{interaction.drug_2}</td>
-                    <td className="border p-2">{interaction.interaction}</td>
+                    <td className="border p-2">{interaction.interaction_description}</td>
                   </tr>
                 ))}
             </tbody>

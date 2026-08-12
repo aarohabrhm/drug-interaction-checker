@@ -1,66 +1,42 @@
 import { useEffect, useState } from "react";
-//import { useNavigate } from "react-router-dom";
 import { PrescriptionForm } from "../components/PrescriptionForm";
-import { checkPrescriptionInteractions, fetchPatients, Patient } from "../../utils/api"; // Import API function
+import { Patient, fetchPatients } from "../../utils/api";
+import { useDocumentMeta } from "../lib/useDocumentMeta";
 
 export function AddPrescription() {
-  //const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch patients on component mount
+  useDocumentMeta("SafeMeds | New prescription");
+
   useEffect(() => {
     const loadPatients = async () => {
       try {
-        const data = await fetchPatients();
-        setPatients(data);
-      } catch (error) {
-        console.error("Failed to fetch patients:", error);
+        // Request a full page of patients so the selector is not limited to the
+        // default page size.
+        const page = await fetchPatients({ pageSize: 100 });
+        setPatients(page.patients);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load patients.");
       }
     };
 
-    loadPatients();
+    void loadPatients();
   }, []);
-
-  const handleSubmit = async (prescription: any) => {
-    try {
-        if (!prescription.newMedications || prescription.newMedications.length === 0) {
-            console.log("⏳ No new medications to check. Skipping API call.");
-            return;
-        }
-
-        const interaction = await checkPrescriptionInteractions(
-            prescription.patientId,
-            prescription.newMedications
-        );
-
-        console.log("✅ API Interactions Response:", interaction); // 🛠 Debugging step
-
-        // 🔍 Check if interactions exist
-        if (interaction && Object.keys(interaction).length > 0) {
-            console.warn("⚠️ Drug interactions found:", interaction);
-            alert("⚠️ Warning: Drug interactions detected!");
-        } else {
-            alert("✅ No interactions detected.");
-        }
-
-    } catch (error) {
-        console.error("❌ Error checking interactions:", error);
-    }
-};
-
-
-
-  
-  
 
   return (
     <div className="p-6">
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-4 mb-6"></div>
-
-        {/* Pass patients to PrescriptionForm */}
-        <PrescriptionForm patients={patients} onSubmit={handleSubmit} />
+        {error && (
+          <div className="mb-4 text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</div>
+        )}
+        {/* The form saves the prescription and renders its own warnings; it no
+            longer reports them a second time through a parent alert. */}
+        <PrescriptionForm patients={patients} />
       </div>
     </div>
   );
 }
+
+export default AddPrescription;

@@ -1,8 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Head from 'next/head';
-import { Search, PlusCircle, UserRound } from 'lucide-react';
-import { Patient, fetchPatients, fetchDoctorDetails,addPatient } from '../../utils/api';
+import { FileText, PlusCircle, Search, UserRound } from 'lucide-react';
+import {
+  Patient,
+  addPatient,
+  fetchDoctorDetails,
+  fetchPatients,
+  logoutDoctor,
+} from '../../utils/api';
+import { useDocumentMeta } from '../lib/useDocumentMeta';
 
 function PatientList() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -10,9 +16,16 @@ function PatientList() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const navigate = useNavigate();  
-  
+  const navigate = useNavigate();
+
+  useDocumentMeta(
+    'SafeMeds | Patients',
+    'SafeMeds doctor prescription platform with drug interaction checking'
+  );
+
   const [newPatient, setNewPatient] = useState({
     name: '',
     age: '',
@@ -23,110 +36,118 @@ function PatientList() {
     current_medications: ''
   });
 
-  
-
   const [doctor, setDoctor] = useState<{ name: string; specialty: string }>({
-    name: "Adam John",
-    specialty: "Physician",
+    name: '',
+    specialty: '',
   });
 
-  useEffect(() => {
-    const loadPatients = async () => {
-      try {
-        setLoading(true);
-        const patientData = await fetchPatients();
-        setPatients(patientData);
-        setError(null);
-      } catch (err) {
-        setError('Failed to load patients');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const loadDoctor = async () => {
-      const token = localStorage.getItem("token");
-      if (!token) return;
-
-      const doctorData = await fetchDoctorDetails();
-      if (doctorData) {
-        setDoctor({
-          name: doctorData.username,
-          specialty: doctorData.specialty || "Not Specified",
-        });
-      }
-    };
-
-    loadPatients();
-    loadDoctor();
+  // Searching happens server-side now: the patient list is paginated, so
+  // filtering the current page in the browser would silently miss matches on
+  // every other page.
+  const loadPatients = useCallback(async (search: string) => {
+    try {
+      setLoading(true);
+      const page = await fetchPatients({ search });
+      setPatients(page.patients);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load patients');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Debounced so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadPatients(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, loadPatients]);
+
+  useEffect(() => {
+    const loadDoctor = async () => {
+      try {
+        // Previously read localStorage key "token" while login wrote
+        // "authToken", so this never ran and the header showed a hardcoded
+        // placeholder doctor. The token is now attached by the API client.
+        const doctorData = await fetchDoctorDetails();
+        if (doctorData) {
+          setDoctor({
+            name: doctorData.username,
+            specialty: doctorData.specialty || 'Not Specified',
+          });
+        }
+      } catch {
+        // Non-fatal: the patient list is still usable without the profile.
+      }
+    };
+    void loadDoctor();
+  }, []);
+
+  const handleLogout = async () => {
+    await logoutDoctor();
+    navigate('/login', { replace: true });
+  };
 
   const handleAddPatient = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaving(true);
+    setFormError(null);
     try {
-      const age = newPatient.age ? parseInt(newPatient.age, 10) : null; // Ensure valid age
-  
-      const patientData = {
+      const savedPatient = await addPatient({
         ...newPatient,
-        age,
-        registered_date: new Date().toISOString(),
-      };
-  
-      const savedPatient = await addPatient(patientData); // Send data to API
-  
-      setPatients((prevPatients) => [...prevPatients, savedPatient]); // Safely update state
-      setIsAddModalOpen(false); // Close modal
-  
-      // Reset form fields
-      setNewPatient({
-        name: "",
-        age: "",
-        medical_condition: "",
-        remarks: "",
-        phone_number: "",
-        email: "",
-        current_medications: "",
+        age: newPatient.age ? parseInt(newPatient.age, 10) : null,
       });
-  
+
+      setPatients((prevPatients) => [savedPatient, ...prevPatients]);
+      setIsAddModalOpen(false);
+
+      setNewPatient({
+        name: '',
+        age: '',
+        medical_condition: '',
+        remarks: '',
+        phone_number: '',
+        email: '',
+        current_medications: '',
+      });
     } catch (err) {
-      console.error("Error adding patient:", err);
-      setError("Failed to add patient. Please try again.");
+      // Surface the API's validation message instead of a generic string.
+      setFormError(err instanceof Error ? err.message : 'Failed to add patient.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const filteredPatients = patients.filter(patient => 
-    patients.filter(patient => patient.name?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    patient.phone_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    patient.medical_condition.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <div className="min-h-screen bg-gray-100">
-      <Head>
-        <title>SafeMeds</title>
-        <meta name="description" content="SafeMeds doctor prescription platform with drug interaction checking" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-
       <header className="bg-transparent">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center">
             <div className="text-blue-400 mr-2">
-              <img 
-                src="/logo.png" 
-                alt="DNA illustration" 
+              <img
+                src="/logo.png"
+                alt=""
                 className="w-10 h-10"
               />
             </div>
             <h1 className="text-xl font-bold">SafeMeds</h1>
           </div>
-          
-          <button 
-                onClick={() => navigate('/')}
-                className="border border-gray-400 text-gray-800 hover:bg-blue-600 rounded-full px-5 py-2 items-center shadow-lg">
-                Logout
-          </button>
+
+          <div className="flex items-center gap-4">
+            {doctor.name && (
+              <span className="text-sm text-gray-600">
+                {doctor.name}
+                {doctor.specialty ? ` · ${doctor.specialty}` : ''}
+              </span>
+            )}
+            <button
+              onClick={handleLogout}
+              className="border border-gray-400 text-gray-800 hover:bg-blue-600 hover:text-white rounded-full px-5 py-2 items-center shadow-lg">
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -157,6 +178,13 @@ function PatientList() {
               <button onClick={() => navigate('/prescription')} className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-4 py-2 flex items-center shadow-sm">
                 <PlusCircle className="h-5 w-5 mr-2" />
                 Add Prescription
+              </button>
+              <button
+                onClick={() => navigate('/prescriptions')}
+                className="border border-gray-400 text-gray-800 hover:bg-gray-200 rounded-full px-4 py-2 flex items-center shadow-sm"
+              >
+                <FileText className="h-5 w-5 mr-2" />
+                History
               </button>
             </div>
           </div>
@@ -242,16 +270,25 @@ function PatientList() {
                       />
                     </div>
                   </div>
+                  {formError && (
+                    <div className="mt-4 text-sm text-red-600 bg-red-50 p-2 rounded-lg">
+                      {formError}
+                    </div>
+                  )}
                   <div className="flex space-x-2 mt-6">
                     <button
                       type="submit"
-                      className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-4 py-2 flex-1"
+                      disabled={saving}
+                      className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded-lg px-4 py-2 flex-1"
                     >
-                      Add Patient
+                      {saving ? 'Saving…' : 'Add Patient'}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setIsAddModalOpen(false)}
+                      onClick={() => {
+                        setIsAddModalOpen(false);
+                        setFormError(null);
+                      }}
                       className="bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg px-4 py-2 flex-1"
                     >
                       Cancel
@@ -337,7 +374,7 @@ function PatientList() {
           )}
           {!loading && !error && (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredPatients.map((patient) => (
+              {patients.map((patient) => (
                 <div 
                   key={patient.id} 
                   className="bg-gray-50 border-2 border-white rounded-2xl shadow-sm overflow-hidden cursor-pointer" 

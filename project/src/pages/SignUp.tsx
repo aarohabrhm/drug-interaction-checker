@@ -1,20 +1,36 @@
 import { useState } from "react";
-import { signupDoctor } from "../../utils/api";
+import { ApiError, signupDoctor } from "../../utils/api";
 import { useNavigate } from "react-router-dom";
+import { useDocumentMeta } from "../lib/useDocumentMeta";
 
 export default function Signup() {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [specialty, setSpecialty] = useState("");
     const [message, setMessage] = useState("");
-    const navigate = useNavigate()
+    const [submitting, setSubmitting] = useState(false);
+    const navigate = useNavigate();
 
-    const handleSignup = async () => {
-        const result = await signupDoctor(username, password, specialty);
-        if (result.error) {
-            setMessage(result.error);
-        } else {
-            setMessage("Signup successful! You can now log in.");
+    useDocumentMeta("SafeMeds | Create account");
+
+    const handleSignup = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSubmitting(true);
+        setMessage("");
+        try {
+            await signupDoctor(username, password, specialty);
+            setMessage("Signup successful! Redirecting to sign in…");
+            setTimeout(() => navigate("/login", { replace: true }), 1200);
+        } catch (error) {
+            // The API rejects weak passwords via Django's validators; show the
+            // specific reasons rather than a generic failure.
+            if (error instanceof ApiError && error.fields) {
+                setMessage(Object.values(error.fields).flat().join(" "));
+            } else {
+                setMessage(error instanceof Error ? error.message : "Signup failed.");
+            }
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -33,7 +49,7 @@ export default function Signup() {
           </div>
   
           {/* Form */}
-          <div className="space-y-6">
+          <form className="space-y-6" onSubmit={handleSignup}>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Username
@@ -41,6 +57,8 @@ export default function Signup() {
               <input
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
                 type="text"
+                name="username"
+                autoComplete="username"
                 placeholder="Enter your username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -54,6 +72,8 @@ export default function Signup() {
               <input
                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
                 type="password"
+                name="password"
+                autoComplete="new-password"
                 placeholder="Create a password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -86,12 +106,13 @@ export default function Signup() {
   
             {/* Signup Button */}
             <button
-              onClick={handleSignup}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition duration-200 font-medium"
+              type="submit"
+              disabled={submitting}
+              className="w-full bg-blue-600 disabled:bg-gray-400 text-white py-3 rounded-lg hover:bg-blue-700 transition duration-200 font-medium"
             >
-              Sign Up
+              {submitting ? "Creating account…" : "Sign Up"}
             </button>
-          </div>
+          </form>
   
           {/* Login Link */}
           <div className="mt-6 text-center">

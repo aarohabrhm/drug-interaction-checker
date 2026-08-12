@@ -1,0 +1,24 @@
+# SafeMeds backend runtime dependencies.
+# Pinned so dev, staging and prod resolve to identical versions.
+
+# 5.1.6 carried 20+ published advisories (PYSEC-2025-13/14/37/47/104-109,
+# CVE-2026-48587/48588/6873/8404/53877/53878). 5.2.x is the current LTS line.
+Django==5.2.17
+djangorestframework==3.17.2
+django-cors-headers==4.9.0
+django-ratelimit==4.1.0
+
+# Config / environment
+python-dotenv==1.2.2
+dj-database-url==3.1.2
+
+# Database driver. psycopg2-binary is fine for most deploys; switch to
+# psycopg2 (source build) if your platform requires it.
+psycopg2-binary==2.9.12
+
+# Outbound HTTP (Gemini interaction lookups)
+requests==2.34.2
+
+# Production serving
+gunicorn==26.0.0
+whitenoise==6.12.0

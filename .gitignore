@@ -1,14 +1,49 @@
-node_modules
-env1
+# --- Secrets -------------------------------------------------------------
+# Every .env variant, at any depth. Only .env.example is committed.
+.env
+.env.*
 **/.env
+**/.env.*
+!.env.example
+!**/.env.example
 
+*.pem
+*.key
+
+# --- Python --------------------------------------------------------------
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*.so
+env1/
+venv/
+.venv/
+.auditvenv/
+staticfiles/
 
+# --- Databases -----------------------------------------------------------
 db.sqlite3
 *.sqlite3
 *.db
 
+# --- Node / frontend -----------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# --- Data ----------------------------------------------------------------
 backend/db_drug_interactions.csv
+
+# --- Tooling / editors ---------------------------------------------------
+.idea/
+.vscode/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+coverage/
+.pytest_cache/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
