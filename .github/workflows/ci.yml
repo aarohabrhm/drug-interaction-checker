@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Django)
+    runs-on: ubuntu-latest
+
+    # Run against Postgres, not the SQLite dev fallback -- CI should exercise
+    # the engine production uses, or Postgres-only issues surface on deploy.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: safemeds_test
+          POSTGRES_USER: safemeds
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Throwaway, and long/varied enough to satisfy security.W009 so the
+      # deploy check below runs at --fail-level WARNING. Not a real secret and
+      # not used anywhere outside this ephemeral CI job.
+      DJANGO_SECRET_KEY: ci-only-4f8b2d7e9a1c6035b8e4d2f7a9c1e63b5d0a8f2c7e94b1d6
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      DATABASE_URL: postgres://safemeds:ci-only-password@localhost:5432/safemeds_test
+      # External lookups are disabled during tests anyway; set explicitly so CI
+      # can never depend on RxNorm or openFDA being reachable.
+      RXNORM_ENABLED: "false"
+      OPENFDA_ENABLED: "false"
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check for missing migrations
+        # Fails if a model was changed without generating a migration.
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Django deployment checks
+        # Runs with DEBUG=false, so this asserts the production security
+        # posture (HSTS, secure cookies, SSL redirect, ALLOWED_HOSTS).
+        run: python manage.py check --deploy --fail-level WARNING
+
+      - name: Run tests
+        run: python manage.py test --verbosity 2
+
+      - name: Validate OpenAPI schema
+        # --fail-on-warn keeps the schema honest: an endpoint added without
+        # annotation breaks the build rather than silently degrading the docs.
+        run: python manage.py spectacular --file schema.yml --fail-on-warn
+
+      - name: Upload OpenAPI schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-schema
+          path: backend/schema.yml
+
+  frontend:
+    name: Frontend (React + Vite)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: project
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: project/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        env:
+          # Required at build time; the build fails without it by design.
+          VITE_API_BASE_URL: https://api.example.com
+        run: npm run build
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    # Advisory: new CVEs are published constantly and should not turn every
+    # unrelated PR red. Read the output, do not ignore it.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Python dependency audit
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r backend/requirements.txt
+
+      - name: npm audit
+        working-directory: project
+        run: npm audit --audit-level=high

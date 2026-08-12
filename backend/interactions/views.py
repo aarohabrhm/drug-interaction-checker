@@ -20,6 +20,9 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+
+from backend.schema import ERROR_RESPONSES, ErrorResponseSerializer
 
 from .models import (
     SEVERITY_RANK,
@@ -34,6 +37,8 @@ from .models import (
 )
 from .normalization import resolve_many
 from .serializers import (
+    InteractionCheckRequestSerializer,
+    InteractionCheckResponseSerializer,
     InteractionWarningSerializer,
     PatientSerializer,
     PrescriptionSerializer,
@@ -91,6 +96,17 @@ def _get_owned_patient(user, patient_id):
 # --------------------------------------------------------------------------- #
 
 
+@extend_schema(
+    tags=["patients"],
+    summary="List patients",
+    description="Paginated, and scoped to the authenticated doctor.",
+    parameters=[
+        OpenApiParameter("search", str, description="Match name, phone or condition."),
+        OpenApiParameter("page", int),
+        OpenApiParameter("page_size", int, description="Max 100."),
+    ],
+    responses={200: PatientSerializer(many=True), 401: ErrorResponseSerializer},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_patients(request):
@@ -116,6 +132,14 @@ def get_patients(request):
     return paginator.get_paginated_response(serializer.data)
 
 
+@extend_schema(
+    tags=["patients"],
+    summary="Create a patient",
+    description="The record is owned by the authenticated doctor; `doctor` is "
+    "never read from the payload.",
+    request=PatientSerializer,
+    responses={201: PatientSerializer, **ERROR_RESPONSES},
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def add_patient(request):
@@ -137,6 +161,14 @@ def add_patient(request):
     return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema(
+    tags=["patients"],
+    summary="Read or update a patient",
+    description="Another doctor's patient returns 404, not 403, so the endpoint "
+    "cannot be used to enumerate patient ids.",
+    request=PatientSerializer,
+    responses={200: PatientSerializer, **ERROR_RESPONSES},
+)
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def patient_detail(request, patient_id):
@@ -160,6 +192,11 @@ def patient_detail(request, patient_id):
     return Response(serializer.data)
 
 
+@extend_schema(
+    tags=["patients"],
+    summary="Interaction warnings previously raised for a patient",
+    responses={200: InteractionWarningSerializer(many=True), **ERROR_RESPONSES},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def patient_interaction_history(request, patient_id):
@@ -240,6 +277,17 @@ def _resolve_known_pairs(pairs):
     return resolved, pairs - resolved.keys()
 
 
+@extend_schema(
+    tags=["prescriptions"],
+    summary="Screen medications without issuing a prescription",
+    description=(
+        "Used to warn the prescriber before they commit. Always returns "
+        "`screening_complete` and `unscreened_pairs`: a pair whose sources were "
+        "all unreachable is reported as unscreened, never silently dropped."
+    ),
+    request=InteractionCheckRequestSerializer,
+    responses={200: InteractionCheckResponseSerializer, **ERROR_RESPONSES},
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([InteractionCheckThrottle])
@@ -460,6 +508,23 @@ def _prescriptions_for(user):
     )
 
 
+@extend_schema(
+    tags=["prescriptions"],
+    summary="List prescriptions, or issue a new one",
+    description=(
+        "Issuing runs the interaction check and stores the prescription, its "
+        "medication lines and any warnings in one transaction. Check "
+        "`screening_complete` on the response: a prescription can be saved with "
+        "some pairs unscreened, and that is not an all-clear."
+    ),
+    parameters=[OpenApiParameter("patient", int, description="Filter by patient id.")],
+    request=PrescriptionSerializer,
+    responses={
+        200: PrescriptionSerializer(many=True),
+        201: PrescriptionSerializer,
+        **ERROR_RESPONSES,
+    },
+)
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([InteractionCheckThrottle])
@@ -539,6 +604,11 @@ def prescriptions(request):
     )
 
 
+@extend_schema(
+    tags=["prescriptions"],
+    summary="One prescription with its medications and warnings",
+    responses={200: PrescriptionSerializer, **ERROR_RESPONSES},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def prescription_detail(request, prescription_id):
