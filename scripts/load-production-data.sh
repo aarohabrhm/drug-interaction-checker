@@ -13,6 +13,10 @@
 #   ./scripts/load-production-data.sh                    # demo data only
 #   ./scripts/load-production-data.sh path/to/file.csv   # demo data + dataset
 #
+# Run it from anywhere -- it locates the project relative to its own path.
+# Set ASSUME_YES=1 to skip the confirmation where nothing can answer a prompt.
+# Set SEED_PASSWORD to choose the demo account's password.
+#
 # DATABASE_URL is read from the environment and never echoed, so it does not end
 # up in your shell history or in this script's output.
 
@@ -78,8 +82,18 @@ if [ -n "$CSV_PATH" ] && [ ! -f "$CSV_PATH" ]; then
     exit 1
 fi
 
-read -r -p "Continue? [y/N] " reply
-[ "$reply" = "y" ] || [ "$reply" = "Y" ] || { echo "Aborted."; exit 1; }
+# ASSUME_YES lets this run where nothing can answer a prompt -- a CI step, or a
+# shell with stdin closed, where `read` sees EOF and would abort every time.
+if [ "${ASSUME_YES:-}" = "1" ]; then
+    echo "ASSUME_YES=1 -- proceeding without confirmation."
+elif [ ! -t 0 ]; then
+    echo "Not an interactive terminal, and ASSUME_YES is not set." >&2
+    echo "Re-run in a terminal, or prefix with ASSUME_YES=1 to skip the prompt." >&2
+    exit 1
+else
+    read -r -p "Continue? [y/N] " reply
+    [ "$reply" = "y" ] || [ "$reply" = "Y" ] || { echo "Aborted."; exit 1; }
+fi
 echo
 
 # ------------------------------------------------------------------- schema
