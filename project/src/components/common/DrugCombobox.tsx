@@ -144,7 +144,7 @@ export function DrugCombobox({
         <ul
           id={listboxId}
           role="listbox"
-          className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover p-1 shadow-card"
+          className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover p-1"
         >
           {suggestions.map((suggestion, index) => (
             <li key={`${suggestion.source}-${suggestion.name}`}>

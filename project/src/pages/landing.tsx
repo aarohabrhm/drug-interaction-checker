@@ -1,53 +1,97 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Ban, HelpCircle, Layers, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Ban, HelpCircle, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '../components/common/Logo';
 import { useDocumentMeta } from '../lib/useDocumentMeta';
 
 /**
- * The hero is a worked example rather than a claim.
+ * The hero is a screening, not a claim about screenings.
  *
- * Showing one real screening -- a contraindication, an ungraded finding, and a
- * pair nothing could answer -- says what the product does in less space than a
- * paragraph about it would, and demonstrates the one behaviour that
- * distinguishes it.
+ * These are real pairs with real outcomes, and they include the one most
+ * products hide: a pair nothing could answer. Putting that in the first
+ * viewport is the whole argument, made in less space than a paragraph about it
+ * would take.
  */
-const EXAMPLE = [
+const SCREENING = [
   {
-    pair: 'clarithromycin + simvastatin',
-    label: 'Contraindicated',
-    detail: 'Strong CYP3A4 inhibition; risk of rhabdomyolysis.',
-    className: 'border-l-sev-contraindicated-border bg-sev-contraindicated-bg',
-    text: 'text-sev-contraindicated',
+    a: 'clarithromycin',
+    b: 'simvastatin',
+    grade: 'Contraindicated',
+    note: 'CYP3A4 inhibition — rhabdomyolysis risk',
+    tone: 'text-sev-contraindicated',
+    rule: 'bg-sev-contraindicated-border',
     icon: Ban,
   },
   {
-    pair: 'clarithromycin + warfarin',
-    label: 'Ungraded',
-    detail: 'Reported in labelling, with no severity assigned by the source.',
-    className: 'border-l-sev-unknown-border bg-sev-unknown-bg',
-    text: 'text-sev-unknown',
+    a: 'clarithromycin',
+    b: 'warfarin',
+    grade: 'Ungraded',
+    note: 'In the label, with no severity assigned',
+    tone: 'text-sev-unknown',
+    rule: 'bg-sev-unknown-border',
     icon: HelpCircle,
   },
   {
-    pair: 'clarithromycin + metformin',
-    label: 'No known interaction',
-    detail: 'Checked against the loaded sources.',
-    className: 'border-l-sev-clear-border bg-sev-clear-bg',
-    text: 'text-sev-clear',
+    a: 'clarithromycin',
+    b: 'metformin',
+    grade: 'No known interaction',
+    note: 'Checked against every source',
+    tone: 'text-sev-clear',
+    rule: 'bg-sev-clear-border',
     icon: ShieldCheck,
+  },
+  {
+    a: 'clarithromycin',
+    b: 'levothyroxine',
+    grade: 'Not screened',
+    note: 'No source could answer this pair',
+    tone: 'text-sev-unknown',
+    rule: 'bg-sev-unknown-border',
+    icon: HelpCircle,
+    faded: true,
   },
 ];
 
+/** Ordered because a check genuinely happens in this order. */
+const STEPS: [string, string][] = [
+  [
+    'Choose the patient',
+    'Their current medications load with them — including anything you have prescribed before.',
+  ],
+  [
+    'Add what you intend to prescribe',
+    'Names autocomplete from the interaction dataset, so a typo does not become a blind spot.',
+  ],
+  [
+    'Every pair is compared',
+    'Each new medicine against everything they already take. Brand names resolve to their ingredient first.',
+  ],
+  [
+    'Each pair resolves, or does not',
+    'Curated data, then drug labels. If nothing can answer, the pair is marked — never quietly dropped.',
+  ],
+  [
+    'Review, then confirm',
+    'Nothing is written until you say so, and the record keeps the warnings exactly as you saw them.',
+  ],
+];
+
+const SOURCES: [string, string][] = [
+  ['Curated dataset', 'Severity-graded pairs. The only source that can say how serious something is.'],
+  ['openFDA drug labels', 'Prescribing information, free text, no grading. Shown as ungraded.'],
+  ['RxNorm', 'Resolves brand names to their active ingredient, so Coumadin matches warfarin.'],
+  ['AI fallback', 'Off unless configured, and always labelled unverified when it is on.'],
+];
+
 export default function Landing() {
-  useDocumentMeta('SafeMeds | Drug interaction checking for prescribers');
+  useDocumentMeta('SafeMeds | Drug interaction screening for prescribers');
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <Logo size={32} withName />
-          <nav className="flex items-center gap-2">
+          <Logo size={30} withName />
+          <nav className="flex items-center gap-1">
             <Button variant="ghost" size="sm" asChild>
               <Link to="/login">Sign in</Link>
             </Button>
@@ -59,112 +103,241 @@ export default function Landing() {
       </header>
 
       <main>
-        <section className="mx-auto max-w-6xl px-6 py-20 lg:py-28">
-          <div className="grid items-center gap-12 lg:grid-cols-2">
+        {/* ------------------------------------------------------------ hero */}
+        <section className="mx-auto max-w-6xl px-6 pb-20 pt-16 sm:pt-24">
+          <div className="grid gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:items-start lg:gap-16">
             <div>
-              <p className="text-label uppercase tracking-wide text-primary">
-                Prescribing support
+              <p className="text-label font-mono uppercase text-muted-foreground">
+                Drug interaction screening
               </p>
-              <h1 className="mt-4 text-[40px] font-semibold leading-[1.1] tracking-[-0.03em] text-foreground sm:text-[52px]">
-                Check the interaction before you write the script.
+              <h1 className="mt-6 max-w-[15ch] text-display-xl text-foreground">
+                Screen every pair before you prescribe.
               </h1>
-              <p className="mt-5 max-w-md text-base text-muted-foreground">
-                SafeMeds screens what you intend to prescribe against everything the
-                patient already takes, grades what it finds by clinical severity, and
-                tells you plainly when it could not check something.
+              <p className="mt-7 max-w-md text-[17px] leading-relaxed text-muted-foreground">
+                SafeMeds checks what you are about to prescribe against everything
+                your patient already takes, grades what it finds, and marks what it
+                could not answer.
               </p>
 
-              <div className="mt-8 flex flex-wrap gap-3">
+              <div className="mt-9 flex flex-wrap items-center gap-3">
                 <Button size="lg" asChild>
                   <Link to="/signup">
-                    Get started
+                    Create account
                     <ArrowRight className="ml-1.5 h-4 w-4" />
                   </Link>
                 </Button>
-                <Button size="lg" variant="outline" asChild>
+                <Button size="lg" variant="ghost" asChild>
                   <Link to="/login">Sign in</Link>
                 </Button>
               </div>
+
+              <dl className="mt-14 grid max-w-md grid-cols-3 gap-6 border-t border-border pt-7">
+                {[
+                  ['4', 'severity grades'],
+                  ['3', 'data sources'],
+                  ['0', 'pairs quietly dropped'],
+                ].map(([value, label]) => (
+                  <div key={label}>
+                    <dt className="tabular font-display text-2xl text-foreground">{value}</dt>
+                    <dd className="mt-1 text-xs leading-snug text-muted-foreground">{label}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
 
-            {/* One screening, as the app renders it. */}
-            <div className="rounded-lg border border-border bg-card p-6 shadow-card">
-              <div className="mb-4 flex items-baseline justify-between gap-3">
-                <p className="text-section">Screening result</p>
-                <p className="tabular text-xs text-muted-foreground">3 pairs</p>
+            {/* The signature: a screening resolving pair by pair on load. */}
+            <div className="rounded-lg border border-border bg-card">
+              <div className="flex items-baseline justify-between gap-3 border-b border-border px-5 py-4">
+                <p className="text-label font-mono uppercase text-muted-foreground">
+                  Screening
+                </p>
+                <p className="tabular font-mono text-xs text-muted-foreground">4 pairs</p>
               </div>
-              <ul className="space-y-2.5">
-                {EXAMPLE.map((row) => {
+
+              <ul>
+                {SCREENING.map((row, index) => {
                   const Icon = row.icon;
                   return (
                     <li
-                      key={row.pair}
-                      className={`rounded-lg border border-l-4 border-border p-3.5 ${row.className}`}
+                      key={row.b}
+                      className="settle flex items-start gap-4 border-b border-border px-5 py-4 last:border-0"
+                      style={{ animationDelay: `${180 + index * 190}ms` }}
                     >
-                      <p className={`flex items-center gap-1.5 text-xs font-medium ${row.text}`}>
-                        <Icon className="h-3.5 w-3.5 shrink-0" />
-                        {row.label}
-                      </p>
-                      <p className="mt-1.5 text-sm font-medium text-foreground">{row.pair}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{row.detail}</p>
+                      <span
+                        aria-hidden
+                        className={`mt-1 h-8 w-[3px] shrink-0 rounded-full ${row.rule} ${
+                          row.faded ? 'opacity-40' : ''
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-[13px] text-foreground">
+                          {row.a} <span className="text-muted-foreground">+</span> {row.b}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">{row.note}</p>
+                      </div>
+                      <span
+                        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-medium ${row.tone}`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {row.grade}
+                      </span>
                     </li>
                   );
                 })}
               </ul>
+
+              <p className="bg-surface px-5 py-3 text-xs leading-relaxed text-muted-foreground">
+                The fourth pair is the one that matters. Most checkers would have
+                shown you three.
+              </p>
             </div>
           </div>
         </section>
 
-        <section className="border-y border-border bg-surface">
-          <div className="mx-auto grid max-w-6xl gap-8 px-6 py-16 sm:grid-cols-3">
+        <div className="border-t border-border" />
+
+        {/* ---------------------------------------------------- three states */}
+        <section className="mx-auto max-w-6xl px-6 py-20">
+          <div className="max-w-2xl">
+            <p className="text-label font-mono uppercase text-muted-foreground">
+              Three answers, not two
+            </p>
+            <h2 className="mt-5 text-display-lg text-foreground">
+              “Nothing found” and “could not check” are different sentences.
+            </h2>
+            <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
+              Collapsing them is the easiest mistake a screening tool can make, and
+              the hardest one to notice. A pair no source could answer looks exactly
+              like a clean result — unless the tool insists on telling you.
+            </p>
+          </div>
+
+          <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-3">
             {[
               {
-                icon: Layers,
-                title: 'Graded, with provenance',
-                body: 'Every warning states its severity and where the statement came from. An AI-generated answer is never presented as curated pharmacology.',
-              },
-              {
-                icon: HelpCircle,
-                title: 'Honest about gaps',
-                body: 'A pair no source could answer is reported as unchecked, never folded into the ones that came back clear.',
+                icon: Ban,
+                tone: 'text-sev-contraindicated',
+                title: 'Found something',
+                body: 'Graded contraindicated, major, moderate or minor, with the mechanism and what to do about it.',
               },
               {
                 icon: ShieldCheck,
-                title: 'Nothing saved early',
-                body: 'Screening runs before the prescription is written, so a contraindication arrives while you can still act on it.',
+                tone: 'text-sev-clear',
+                title: 'Checked, nothing found',
+                body: 'Every source was reachable, and none of them had anything on this pair.',
               },
-            ].map(({ icon: Icon, title, body }) => (
-              <div key={title}>
-                <span className="grid h-9 w-9 place-items-center rounded-md bg-primary-subtle text-primary">
-                  <Icon className="h-[18px] w-[18px]" />
-                </span>
-                <h2 className="mt-4 text-section">{title}</h2>
-                <p className="mt-2 text-sm text-muted-foreground">{body}</p>
+              {
+                icon: HelpCircle,
+                tone: 'text-sev-unknown',
+                title: 'Could not check',
+                body: 'No source could answer. Nothing is known either way, and the screening says so.',
+              },
+            ].map(({ icon: Icon, tone, title, body }) => (
+              <div key={title} className="bg-card p-7">
+                <Icon className={`h-[18px] w-[18px] ${tone}`} />
+                <h3 className="mt-5 text-section text-foreground">{title}</h3>
+                <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">{body}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 py-20 text-center">
-          <h2 className="text-display text-foreground">Screen your first prescription</h2>
-          <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
-            Create an account, add a patient with their current medications, and check
-            what you intend to prescribe against them.
-          </p>
-          <Button size="lg" className="mt-7" asChild>
-            <Link to="/signup">
-              Create account
-              <ArrowRight className="ml-1.5 h-4 w-4" />
-            </Link>
-          </Button>
+        <div className="border-t border-border" />
+
+        {/* ------------------------------------------------------- the steps */}
+        <section className="mx-auto max-w-6xl px-6 py-20">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] lg:gap-20">
+            <div className="lg:sticky lg:top-28 lg:self-start">
+              <p className="text-label font-mono uppercase text-muted-foreground">
+                How a check runs
+              </p>
+              <h2 className="mt-5 text-display-lg text-foreground">
+                Five steps, in this order.
+              </h2>
+              <p className="mt-5 text-[15px] leading-relaxed text-muted-foreground">
+                The order is the point. Screening happens before anything is written,
+                so a contraindication reaches you while you can still act on it.
+              </p>
+            </div>
+
+            {/* Numbered because this is genuinely a sequence: each step depends
+                on the one before it. */}
+            <ol className="border-t border-border">
+              {STEPS.map(([title, body], index) => (
+                <li key={title} className="flex gap-6 border-b border-border py-6 sm:gap-8">
+                  <span className="tabular shrink-0 pt-0.5 font-mono text-xs text-muted-foreground">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-section text-foreground">{title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <div className="border-t border-border" />
+
+        {/* ------------------------------------------------------ provenance */}
+        <section className="mx-auto max-w-6xl px-6 py-20">
+          <div className="grid gap-12 lg:grid-cols-2 lg:gap-20">
+            <div>
+              <p className="text-label font-mono uppercase text-muted-foreground">
+                Behind the answers
+              </p>
+              <h2 className="mt-5 text-display-lg text-foreground">
+                Every warning says where it came from.
+              </h2>
+              <p className="mt-5 text-[15px] leading-relaxed text-muted-foreground">
+                A graded entry from a curated dataset and a sentence lifted from a
+                drug label are not the same kind of evidence, so SafeMeds never
+                prints them the same way. Anything generated rather than sourced is
+                marked unverified, every time it appears.
+              </p>
+            </div>
+
+            <dl className="border-t border-border">
+              {SOURCES.map(([term, detail]) => (
+                <div key={term} className="border-b border-border py-5">
+                  <dt className="font-mono text-[13px] text-foreground">{term}</dt>
+                  <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                    {detail}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        <div className="border-t border-border" />
+
+        {/* -------------------------------------------------------------- cta */}
+        <section className="mx-auto max-w-6xl px-6 py-24">
+          <div className="max-w-xl">
+            <h2 className="text-display-lg text-foreground">Run your first screening.</h2>
+            <p className="mt-5 text-[15px] leading-relaxed text-muted-foreground">
+              Add a patient with their current medications, then check what you plan
+              to prescribe against them. It takes about a minute.
+            </p>
+            <Button size="lg" className="mt-8" asChild>
+              <Link to="/signup">
+                Create account
+                <ArrowRight className="ml-1.5 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
         </section>
       </main>
 
-      <footer className="border-t border-border">
-        <div className="mx-auto max-w-6xl px-6 py-8">
-          <p className="text-xs text-muted-foreground">
-            A demonstration project. Not a certified clinical tool, and not a substitute
-            for a pharmacist or a maintained interaction database.
+      <footer className="border-t border-border bg-surface">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-start sm:justify-between">
+          <Logo size={28} withName />
+          <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
+            SafeMeds is a demonstration project. It supports clinical judgement and
+            does not replace it, and it is not a substitute for a pharmacist or a
+            maintained commercial interaction database.
           </p>
         </div>
       </footer>

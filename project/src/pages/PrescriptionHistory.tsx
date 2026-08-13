@@ -182,7 +182,7 @@ export function PrescriptionHistory() {
 
               <div className="mt-5 space-y-5">
                 <div>
-                  <h3 className="text-label uppercase tracking-wide text-muted-foreground">
+                  <h3 className="text-label font-mono uppercase text-muted-foreground">
                     Prescribed
                   </h3>
                   <ul className="mt-2 space-y-2">
@@ -201,7 +201,7 @@ export function PrescriptionHistory() {
                 </div>
 
                 <div>
-                  <h3 className="mb-2 text-label uppercase tracking-wide text-muted-foreground">
+                  <h3 className="mb-2 text-label font-mono uppercase text-muted-foreground">
                     Screening at the time
                   </h3>
                   {/* The same renderer as the checker, so a warning cannot look

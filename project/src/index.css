@@ -16,39 +16,49 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%; /* #FFFFFF */
-    --foreground: 222 47% 11%; /* #0F172A */
+    /*
+     * Achromatic by default.
+     *
+     * Colour in this product means one thing: how dangerous an interaction is.
+     * Chrome that also uses colour competes with that signal, so everything
+     * outside the severity scale below is ink, grey or paper. The one exception
+     * is `primary`, which marks interaction -- focus, links, the active route --
+     * and nothing else.
+     */
+    --background: 0 0% 100%;
+    --foreground: 200 11% 5%; /* #0B0D0E */
 
-    /* Page ground behind cards, and table header rows. */
-    --surface: 205 50% 97%; /* #F6F9FC */
+    /* Faintly green-grey rather than blue-grey: it reads as paper next to the
+       clinical reds and ambers, where a blue-grey reads as another brand tint. */
+    --surface: 150 8% 96%; /* #F3F5F4 */
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 200 11% 5%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 200 11% 5%;
 
-    --primary: 221 83% 53%; /* #2563EB */
+    /* Electric, and used sparingly. Interaction only. */
+    --primary: 226 100% 55%; /* #1B4DFF */
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 224 76% 48%; /* #1D4ED8 */
-    /* Selected rows, active nav pill, chip backgrounds. */
-    --primary-subtle: 214 100% 97%; /* #EFF6FF */
+    --primary-hover: 226 90% 47%;
+    --primary-subtle: 226 100% 97%;
 
-    --secondary: 205 50% 97%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 205 50% 97%;
-    --muted-foreground: 215 16% 47%; /* #64748B */
+    --secondary: 150 8% 96%;
+    --secondary-foreground: 200 11% 5%;
+    --muted: 150 8% 96%;
+    --muted-foreground: 205 6% 45%; /* #6B7275 */
 
-    --accent: 199 89% 48%; /* #0EA5E9 */
+    --accent: 226 100% 55%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 0 72% 46%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 210 40% 93%; /* #E6EDF5 */
-    --input: 210 40% 93%;
-    --ring: 221 83% 53%;
+    --border: 140 6% 90%; /* #E2E5E2 */
+    --input: 140 6% 88%;
+    --ring: 226 100% 55%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
     /*
      * Clinical severity.
@@ -133,9 +143,17 @@
     font-variation-settings: 'opsz' 32;
   }
 
+  /* Headings carry the display face; body and UI stay on Inter. */
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+
   /* Numbers line up in columns wherever they are compared. */
   .tabular {
     font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
   }
 
   /* Every interactive element shows where focus is. */
@@ -155,6 +173,27 @@
 }
 
 @layer utilities {
+  /*
+   * The landing hero resolves one drug pair at a time, as a real screening
+   * does. One sequence, on load, roughly a second -- long enough to read as
+   * "this is working through pairs", short enough not to be a performance.
+   * The reduced-motion rule at the foot of this file collapses it to nothing.
+   */
+  @keyframes settle {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .settle {
+    animation: settle 0.42s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+
   /*
    * The unscreened state on the coverage matrix.
    *

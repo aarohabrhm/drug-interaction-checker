@@ -40,12 +40,12 @@ export function StatCard({
         'rounded-lg border p-6',
         emphasis
           ? 'border-primary/20 bg-primary-subtle'
-          : 'border-border bg-card shadow-card',
+          : 'border-border bg-card',
         className
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="text-label uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="text-label font-mono uppercase text-muted-foreground">{label}</p>
         <span
           className={cn(
             'grid h-8 w-8 shrink-0 place-items-center rounded-md',

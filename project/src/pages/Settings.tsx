@@ -50,7 +50,7 @@ function ProfileCard({ username, specialty, patients, prescriptions }: ProfileCa
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <div className="rounded-md bg-surface p-4">
-            <p className="flex items-center gap-1.5 text-label uppercase tracking-wide text-muted-foreground">
+            <p className="flex items-center gap-1.5 text-label font-mono uppercase text-muted-foreground">
               <Users className="h-3.5 w-3.5" />
               Patients
             </p>
@@ -59,7 +59,7 @@ function ProfileCard({ username, specialty, patients, prescriptions }: ProfileCa
             </p>
           </div>
           <div className="rounded-md bg-surface p-4">
-            <p className="flex items-center gap-1.5 text-label uppercase tracking-wide text-muted-foreground">
+            <p className="flex items-center gap-1.5 text-label font-mono uppercase text-muted-foreground">
               <Activity className="h-3.5 w-3.5" />
               Prescriptions
             </p>

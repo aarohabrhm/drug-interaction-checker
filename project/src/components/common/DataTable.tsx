@@ -58,7 +58,7 @@ export function DataTable<T>({
                   key={column.header}
                   scope="col"
                   className={cn(
-                    'px-4 py-3 text-left text-label uppercase tracking-wide text-muted-foreground',
+                    'px-4 py-3 text-left text-label font-mono uppercase text-muted-foreground',
                     column.className
                   )}
                 >
@@ -127,7 +127,7 @@ export function DataTable<T>({
                 .filter((column) => !column.hideOnMobile)
                 .map((column) => (
                   <div key={column.header} className="flex items-start justify-between gap-4">
-                    <dt className="text-label uppercase tracking-wide text-muted-foreground">
+                    <dt className="text-label font-mono uppercase text-muted-foreground">
                       {column.header}
                     </dt>
                     <dd className="min-w-0 text-right text-sm">{column.cell(row)}</dd>

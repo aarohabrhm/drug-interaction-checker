@@ -87,53 +87,30 @@ export default {
   			sm: 'calc(var(--radius) - 6px)'
   		},
   		fontFamily: {
-  			sans: [
-  				'Inter var',
-  				'Inter',
-  				'ui-sans-serif',
-  				'system-ui',
-  				'-apple-system',
-  				'Segoe UI',
-  				'Roboto',
-  				'sans-serif'
-  			]
+  			// UI and body. Legible at small sizes, and deliberately not the face
+  			// that carries the personality.
+  			sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+  			// Display. Set heavy and tight -- the character comes from the
+  			// treatment, not from a novelty face.
+  			display: ['Archivo', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+  			// Doses, counts, grades, eyebrows. A dose is a measured value, and
+  			// monospace is how measured values are set. Plex Mono was drawn for
+  			// technical documentation, which is the register this product lives in.
+  			mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'monospace']
   		},
-  		fontSize: {
-  			'display-lg': [
-  				'2rem',
-  				{
-  					lineHeight: '2.375rem',
-  					letterSpacing: '-0.02em',
-  					fontWeight: '600'
-  				}
-  			],
-  			display: [
-  				'1.5rem',
-  				{
-  					lineHeight: '1.875rem',
-  					letterSpacing: '-0.02em',
-  					fontWeight: '600'
-  				}
-  			],
-  			section: [
-  				'1.125rem',
-  				{
-  					lineHeight: '1.5rem',
-  					letterSpacing: '-0.01em',
-  					fontWeight: '600'
-  				}
-  			],
-  			label: [
-  				'0.8125rem',
-  				{
-  					lineHeight: '1.125rem',
-  					letterSpacing: '0.01em',
-  					fontWeight: '500'
-  				}
-  			]
+		fontSize: {
+  			'display-xl': ['clamp(2.75rem, 6vw, 4.5rem)', { lineHeight: '0.95', letterSpacing: '-0.045em', fontWeight: '700' }],
+  			'display-lg': ['clamp(2rem, 3.6vw, 2.75rem)', { lineHeight: '1.04', letterSpacing: '-0.035em', fontWeight: '700' }],
+  			display: ['1.625rem', { lineHeight: '1.15', letterSpacing: '-0.028em', fontWeight: '650' }],
+  			section: ['1.0625rem', { lineHeight: '1.4', letterSpacing: '-0.012em', fontWeight: '600' }],
+  			// Eyebrows and column headers. Mono, wide-tracked, small.
+  			label: ['0.6875rem', { lineHeight: '1', letterSpacing: '0.09em', fontWeight: '500' }]
   		},
-  		boxShadow: {
-  			card: '0 1px 2px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.06)'
+		boxShadow: {
+  			// Surfaces separate by rule and tone. This is a whisper, kept only for
+  			// things that genuinely float above the page: popovers, the palette.
+  			card: '0 1px 2px rgba(11,13,14,0.04)',
+  			float: '0 8px 32px -8px rgba(11,13,14,0.14), 0 2px 8px -2px rgba(11,13,14,0.06)'
   		},
   		keyframes: {
   			'accordion-down': {

@@ -40,7 +40,7 @@ export function AuthLayout({ title, subtitle, children, footer }: AuthLayoutProp
         className="relative hidden overflow-hidden bg-gradient-to-br from-primary-subtle via-primary-subtle to-background lg:block"
       >
         <div className="flex h-full flex-col justify-center px-16">
-          <p className="text-label uppercase tracking-wide text-primary">
+          <p className="text-label font-mono uppercase text-primary">
             Prescribing support
           </p>
           <p className="mt-4 max-w-md text-[28px] font-semibold leading-tight tracking-[-0.02em] text-foreground">

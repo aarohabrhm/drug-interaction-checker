@@ -43,7 +43,7 @@ function NotFound() {
   return (
     <div className="grid min-h-screen place-items-center bg-surface px-6">
       <div className="text-center">
-        <p className="text-label uppercase tracking-wide text-muted-foreground">404</p>
+        <p className="text-label font-mono uppercase text-muted-foreground">404</p>
         <h1 className="mt-2 text-display text-foreground">This page does not exist</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           The link may be out of date, or the page may have moved.

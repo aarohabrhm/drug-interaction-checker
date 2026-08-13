@@ -213,7 +213,7 @@ export function Interactions() {
                 <SeverityBadge severity={selected.severity} label={selected.severity_label} />
 
                 <div>
-                  <h3 className="text-label uppercase tracking-wide text-muted-foreground">
+                  <h3 className="text-label font-mono uppercase text-muted-foreground">
                     Effect
                   </h3>
                   <p className="mt-1.5 text-sm">{selected.interaction}</p>
@@ -221,7 +221,7 @@ export function Interactions() {
 
                 {selected.management_recommendation && (
                   <div>
-                    <h3 className="text-label uppercase tracking-wide text-muted-foreground">
+                    <h3 className="text-label font-mono uppercase text-muted-foreground">
                       Management
                     </h3>
                     <p className="mt-1.5 text-sm">{selected.management_recommendation}</p>
