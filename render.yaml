@@ -3,17 +3,22 @@
 # Deploy: push this file, then in the Render dashboard choose
 # "New +" -> "Blueprint" and point it at this repository.
 #
-# The frontend gets the API's address automatically. The API cannot get the
-# frontend's the same way, so Render prompts for two values on the first deploy:
+# Render prompts for three values on the first deploy, because each service
+# needs an address that does not exist until the services do:
 #
-#   CORS_ALLOWED_ORIGINS          -> the frontend's address
-#   DJANGO_CSRF_TRUSTED_ORIGINS   -> the same
+#   safemeds-api  CORS_ALLOWED_ORIGINS         -> the frontend's full URL
+#   safemeds-api  DJANGO_CSRF_TRUSTED_ORIGINS  -> the same
+#   safemeds-web  VITE_API_BASE_URL            -> the API's full URL
 #
-# The frontend does not exist yet at that point, so its address is not known.
-# Enter the expected value (https://safemeds-web.onrender.com), then correct it
-# from the dashboard afterwards if Render suffixed the name. Getting this wrong
-# does not break the deploy -- it makes the browser block every API call while
-# the service itself looks healthy.
+# Use the **full hostname**, e.g. https://safemeds-api.onrender.com -- not the
+# service name. Render appends a suffix when a name is already taken globally
+# (safemeds-web may become safemeds-web-a1b2), so take the URLs from the
+# dashboard once the services exist rather than assuming the names below.
+#
+# These are not derived via `fromService`: it supplies the service *name*, not
+# its hostname, which yields addresses with no domain. Neither failure stops a
+# deploy -- both surface only as requests failing in the browser while every
+# server-side log and health check looks perfectly healthy.
 #
 # GEMINI_API_KEY is also prompted and is optional: leave it blank and the app
 # resolves interactions from the curated dataset and openFDA.
@@ -108,22 +113,22 @@ services:
   - type: web
     name: safemeds-web
     runtime: static
-    # VITE_API_BASE_URL is inlined into the bundle at BUILD time, so changing it
-    # needs a rebuild rather than a restart, and the build fails outright if it
-    # is missing. Rather than asking for it by hand -- which is easy to skip,
-    # and easy to get wrong when Render appends a suffix to a taken service
-    # name -- it is derived here from the API's real hostname. `fromService`
-    # yields a bare host with no scheme, so the scheme is added here.
-    buildCommand: >-
-      cd project && npm ci &&
-      VITE_API_BASE_URL="https://$SAFEMEDS_API_HOST" npm run build
+    buildCommand: cd project && npm ci && npm run build
     staticPublishPath: ./project/dist
     envVars:
-      - key: SAFEMEDS_API_HOST
-        fromService:
-          type: web
-          name: safemeds-api
-          property: host
+      # The API's full address, e.g. https://safemeds-api.onrender.com
+      #
+      # Asked for rather than derived: `fromService` supplies the service *name*
+      # ("safemeds-api"), not its hostname, so deriving it produced a URL with
+      # no domain -- which the build accepts and every request then fails
+      # against, in the browser, where the server never sees it.
+      #
+      # Inlined into the bundle at BUILD time, so changing it needs a rebuild
+      # with the cache cleared, not a restart. The build fails outright if it is
+      # missing, which is deliberate: the alternative is a bundle silently
+      # pointing at localhost.
+      - key: VITE_API_BASE_URL
+        sync: false
     routes:
       # Single-page app: every unmatched path must serve index.html or a deep
       # link like /dashboard 404s on refresh.
