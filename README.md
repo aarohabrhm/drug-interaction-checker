@@ -46,6 +46,10 @@ Vite · TypeScript · Tailwind CSS
   rather than omitted. An empty result never silently means "safe".
 - **Per-doctor patient scoping** — patients are visible only to the account
   that created them.
+- **Screened before it is issued** — medications are checked while the
+  prescription can still be changed, not after it is written.
+- **A medication list that stays current** — what is prescribed is recorded
+  against the patient, so the next check screens against it.
 - **Prescription records** — issuing a prescription stores it with the warnings
   raised at the time, so the clinical record reflects what the prescriber saw.
 - **Token auth with expiry**, rate limiting, and a generated OpenAPI schema.
@@ -85,6 +89,26 @@ must check `screening_complete`, and the interface renders "checked and clear",
 
 > The NLM RxNav interaction API was discontinued in January 2024, and DrugBank
 > retired its free checker in March 2026. RxNorm and openFDA remain free.
+
+### Prescribing
+
+Screening happens before anything is written:
+
+| Step | What happens |
+| ---- | ------------ |
+| **Check Interactions** | `POST /api/prescriptions/check/` — screens only, stores nothing |
+| **Confirm & Prescribe** | `POST /api/prescriptions/` — saves, screening again as it does |
+| **Download PDF** | offered only once the prescription exists |
+
+Editing anything after a check discards the result and hides the confirm step.
+Otherwise a prescriber could screen one drug, substitute another, and confirm
+against a screening that never covered it — a false all-clear produced by the
+interface rather than the data.
+
+Confirming re-screens on the server rather than trusting what the browser is
+showing, so the stored warnings are the ones raised at the moment of
+prescribing. The prescribed drugs are then added to the patient's medication
+list, which is what later checks compare against.
 
 ## Quickstart
 
@@ -242,7 +266,8 @@ All endpoints except the health probes require `Authorization: Token <token>`.
 | GET | `/healthz` | Liveness |
 | GET | `/readyz` | Readiness (verifies the database) |
 
-Issuing a prescription saves it and screens it in one call, returning the stored
+`check/` screens without writing anything; use it before prescribing. Issuing a
+prescription saves it and screens it in one call, returning the stored
 record with any warnings attached.
 
 Patients are scoped to the account that created them. Another account's patient
@@ -272,10 +297,10 @@ page loads nothing from a third-party CDN.
 ## Testing
 
 ```bash
-cd backend && python manage.py test      # 90 tests
+cd backend && python manage.py test      # 110 tests
 
 cd project
-npm test                                 # 31 tests
+npm test                                 # 37 tests
 npm run test:watch
 npm run test:coverage
 ```
