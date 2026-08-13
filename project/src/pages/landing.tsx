@@ -7,10 +7,9 @@ import { useDocumentMeta } from '../lib/useDocumentMeta';
 /**
  * The hero is a screening, not a claim about screenings.
  *
- * These are real pairs with real outcomes, and they include the one most
- * products hide: a pair nothing could answer. Putting that in the first
- * viewport is the whole argument, made in less space than a paragraph about it
- * would take.
+ * Real pairs with real outcomes -- a contraindication, an ungraded finding and
+ * a clear result -- which says what the product does in less space than a
+ * paragraph about it would take.
  */
 const SCREENING = [
   {
@@ -39,16 +38,6 @@ const SCREENING = [
     tone: 'text-sev-clear',
     rule: 'bg-sev-clear-border',
     icon: ShieldCheck,
-  },
-  {
-    a: 'clarithromycin',
-    b: 'levothyroxine',
-    grade: 'Not screened',
-    note: 'No source could answer this pair',
-    tone: 'text-sev-unknown',
-    rule: 'bg-sev-unknown-border',
-    icon: HelpCircle,
-    faded: true,
   },
 ];
 
@@ -151,7 +140,7 @@ export default function Landing() {
                 <p className="text-label font-mono uppercase text-muted-foreground">
                   Screening
                 </p>
-                <p className="tabular font-mono text-xs text-muted-foreground">4 pairs</p>
+                <p className="tabular font-mono text-xs text-muted-foreground">3 pairs</p>
               </div>
 
               <ul>
@@ -165,9 +154,7 @@ export default function Landing() {
                     >
                       <span
                         aria-hidden
-                        className={`mt-1 h-8 w-[3px] shrink-0 rounded-full ${row.rule} ${
-                          row.faded ? 'opacity-40' : ''
-                        }`}
+                        className={`mt-1 h-8 w-[3px] shrink-0 rounded-full ${row.rule}`}
                       />
                       <div className="min-w-0 flex-1">
                         <p className="font-mono text-[13px] text-foreground">
@@ -185,60 +172,7 @@ export default function Landing() {
                   );
                 })}
               </ul>
-
-              <p className="bg-surface px-5 py-3 text-xs leading-relaxed text-muted-foreground">
-                The fourth pair is the one that matters. Most checkers would have
-                shown you three.
-              </p>
             </div>
-          </div>
-        </section>
-
-        <div className="border-t border-border" />
-
-        {/* ---------------------------------------------------- three states */}
-        <section className="mx-auto max-w-6xl px-6 py-20">
-          <div className="max-w-2xl">
-            <p className="text-label font-mono uppercase text-muted-foreground">
-              Three answers, not two
-            </p>
-            <h2 className="mt-5 text-display-lg text-foreground">
-              “Nothing found” and “could not check” are different sentences.
-            </h2>
-            <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-              Collapsing them is the easiest mistake a screening tool can make, and
-              the hardest one to notice. A pair no source could answer looks exactly
-              like a clean result — unless the tool insists on telling you.
-            </p>
-          </div>
-
-          <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-3">
-            {[
-              {
-                icon: Ban,
-                tone: 'text-sev-contraindicated',
-                title: 'Found something',
-                body: 'Graded contraindicated, major, moderate or minor, with the mechanism and what to do about it.',
-              },
-              {
-                icon: ShieldCheck,
-                tone: 'text-sev-clear',
-                title: 'Checked, nothing found',
-                body: 'Every source was reachable, and none of them had anything on this pair.',
-              },
-              {
-                icon: HelpCircle,
-                tone: 'text-sev-unknown',
-                title: 'Could not check',
-                body: 'No source could answer. Nothing is known either way, and the screening says so.',
-              },
-            ].map(({ icon: Icon, tone, title, body }) => (
-              <div key={title} className="bg-card p-7">
-                <Icon className={`h-[18px] w-[18px] ${tone}`} />
-                <h3 className="mt-5 text-section text-foreground">{title}</h3>
-                <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">{body}</p>
-              </div>
-            ))}
           </div>
         </section>
 
