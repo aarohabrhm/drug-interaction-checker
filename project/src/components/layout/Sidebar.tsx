@@ -11,37 +11,47 @@ interface SidebarNavProps {
   onLogout: () => void;
 }
 
+/**
+ * Navigation, on a dark ground.
+ *
+ * The sidebar anchors the page and carries the blue theme, so the content area
+ * can stay white and let the clinical colours do the talking. It also suits the
+ * mark, which is drawn in light blue and barely registers on white.
+ */
 export function SidebarNav({ collapsed = false, onNavigate, onLogout }: SidebarNavProps) {
+  const item = (isActive: boolean) =>
+    cn(
+      'relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+      isActive
+        ? 'bg-primary font-medium text-primary-foreground'
+        : 'text-sidebar-foreground hover:bg-white/[0.06] hover:text-white',
+      collapsed && 'justify-center px-0'
+    );
+
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-sidebar">
       <div
         className={cn(
-          'flex items-center gap-2.5 px-5 h-16 shrink-0',
+          'flex h-16 shrink-0 items-center px-5',
           collapsed && 'justify-center px-0'
         )}
       >
-        <Logo size={32} withName={!collapsed} />
+        <Logo size={30} withName={!collapsed} className="text-white" />
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-2" aria-label="Main">
+      <nav className="flex-1 space-y-0.5 px-3 py-3" aria-label="Main">
+        {!collapsed && (
+          <p className="px-3 pb-2 text-label font-mono uppercase text-sidebar-muted">
+            Clinical
+          </p>
+        )}
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             onClick={onNavigate}
             title={collapsed ? label : undefined}
-            className={({ isActive }) =>
-              cn(
-                // The 3px left indicator is drawn with a pseudo-element rather
-                // than a border so the text does not shift when it appears.
-                'relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                'before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r before:bg-primary before:opacity-0',
-                isActive
-                  ? 'bg-primary-subtle font-medium text-primary before:opacity-100'
-                  : 'text-muted-foreground hover:bg-surface hover:text-foreground',
-                collapsed && 'justify-center px-0'
-              )
-            }
+            className={({ isActive }) => item(isActive)}
           >
             <Icon className="h-[18px] w-[18px] shrink-0" />
             <span className={cn(collapsed && 'sr-only')}>{label}</span>
@@ -49,20 +59,12 @@ export function SidebarNav({ collapsed = false, onNavigate, onLogout }: SidebarN
         ))}
       </nav>
 
-      <div className="space-y-1 border-t border-border px-3 py-3">
+      <div className="space-y-0.5 border-t border-sidebar-border px-3 py-3">
         <NavLink
           to="/settings"
           onClick={onNavigate}
           title={collapsed ? 'Settings' : undefined}
-          className={({ isActive }) =>
-            cn(
-              'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-              isActive
-                ? 'bg-primary-subtle font-medium text-primary'
-                : 'text-muted-foreground hover:bg-surface hover:text-foreground',
-              collapsed && 'justify-center px-0'
-            )
-          }
+          className={({ isActive }) => item(isActive)}
         >
           <Settings className="h-[18px] w-[18px] shrink-0" />
           <span className={cn(collapsed && 'sr-only')}>Settings</span>
@@ -74,8 +76,8 @@ export function SidebarNav({ collapsed = false, onNavigate, onLogout }: SidebarN
           title={collapsed ? 'Log out' : undefined}
           className={cn(
             // Muted until hover: signing out is a destructive-ish action, but it
-            // should not sit there shouting in red all day.
-            'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive',
+            // should not sit there shouting all day.
+            'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-muted transition-colors hover:bg-white/[0.06] hover:text-white',
             collapsed && 'justify-center px-0'
           )}
         >

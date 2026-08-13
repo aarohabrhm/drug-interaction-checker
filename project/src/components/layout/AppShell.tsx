@@ -60,7 +60,7 @@ export function AppShell() {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-30 hidden border-r border-border bg-background transition-[width] duration-200 lg:block',
+          'fixed inset-y-0 left-0 z-30 hidden bg-sidebar transition-[width] duration-200 lg:block',
           collapsed ? 'w-[72px]' : 'w-[264px]'
         )}
       >
@@ -76,7 +76,7 @@ export function AppShell() {
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-[264px] p-0">
+            <SheetContent side="left" className="w-[264px] border-sidebar-border bg-sidebar p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <SidebarNav onNavigate={() => setMobileOpen(false)} onLogout={handleLogout} />
             </SheetContent>

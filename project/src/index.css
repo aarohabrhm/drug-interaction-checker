@@ -17,46 +17,57 @@
 @layer base {
   :root {
     /*
-     * Achromatic by default.
+     * Blue, all the way down.
      *
-     * Colour in this product means one thing: how dangerous an interaction is.
-     * Chrome that also uses colour competes with that signal, so everything
-     * outside the severity scale below is ink, grey or paper. The one exception
-     * is `primary`, which marks interaction -- focus, links, the active route --
-     * and nothing else.
+     * The neutrals themselves are blue -- ink is deep navy rather than black,
+     * paper is faintly blue rather than grey. That carries the theme without
+     * spending saturated colour on chrome, and it sharpens the clinical
+     * palette rather than competing with it: red on a cool blue field has more
+     * hue contrast than red on neutral grey, so a contraindication reads
+     * harder here than it did against greys.
      */
     --background: 0 0% 100%;
-    --foreground: 200 11% 5%; /* #0B0D0E */
+    --foreground: 213 65% 11%; /* #0A1A2F */
 
-    /* Faintly green-grey rather than blue-grey: it reads as paper next to the
-       clinical reds and ambers, where a blue-grey reads as another brand tint. */
-    --surface: 150 8% 96%; /* #F3F5F4 */
+    --surface: 214 60% 97%; /* #F1F5FC */
 
     --card: 0 0% 100%;
-    --card-foreground: 200 11% 5%;
+    --card-foreground: 213 65% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 200 11% 5%;
+    --popover-foreground: 213 65% 11%;
 
-    /* Electric, and used sparingly. Interaction only. */
-    --primary: 226 100% 55%; /* #1B4DFF */
+    /* Cobalt. Interaction, and the active route. */
+    --primary: 228 100% 55%; /* #1B4DFF */
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 226 90% 47%;
-    --primary-subtle: 226 100% 97%;
+    --primary-hover: 228 85% 47%;
+    --primary-subtle: 222 100% 96%;
 
-    --secondary: 150 8% 96%;
-    --secondary-foreground: 200 11% 5%;
-    --muted: 150 8% 96%;
-    --muted-foreground: 205 6% 45%; /* #6B7275 */
+    --secondary: 214 60% 97%;
+    --secondary-foreground: 213 65% 11%;
+    --muted: 214 60% 97%;
+    --muted-foreground: 217 19% 44%; /* #5B6B84 */
 
-    --accent: 226 100% 55%;
+    --accent: 228 100% 55%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 72% 46%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 140 6% 90%; /* #E2E5E2 */
-    --input: 140 6% 88%;
-    --ring: 226 100% 55%;
+    --border: 214 54% 91%; /* #DCE6F5 */
+    --input: 214 50% 88%;
+    --ring: 228 100% 55%;
+
+    /*
+     * The sidebar runs dark.
+     *
+     * It anchors the page and makes the theme unmistakable without tinting
+     * every card. It also suits the mark: the logo is drawn in light blue, so
+     * it is low-contrast on white and only reads properly on a dark ground.
+     */
+    --sidebar: 213 62% 10%; /* #09192B */
+    --sidebar-foreground: 214 30% 76%;
+    --sidebar-muted: 214 16% 55%;
+    --sidebar-border: 214 40% 18%;
 
     --radius: 0.5rem;
 
