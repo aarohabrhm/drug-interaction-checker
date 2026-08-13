@@ -39,7 +39,7 @@ describe('Login', () => {
     renderLogin();
 
     await user.type(screen.getByLabelText(/username/i), 'demodoctor');
-    await user.type(screen.getByLabelText(/password/i), 'demopass123');
+    await user.type(screen.getByLabelText('Password'), 'demopass123');
     await user.click(screen.getByRole('button', { name: /^sign in$/i }));
 
     expect(await screen.findByText('Dashboard screen')).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe('Login', () => {
     renderLogin({ from: '/patients' });
 
     await user.type(screen.getByLabelText(/username/i), 'demodoctor');
-    await user.type(screen.getByLabelText(/password/i), 'demopass123');
+    await user.type(screen.getByLabelText('Password'), 'demopass123');
     await user.click(screen.getByRole('button', { name: /^sign in$/i }));
 
     expect(await screen.findByText('Patients screen')).toBeInTheDocument();
@@ -74,7 +74,7 @@ describe('Login', () => {
     renderLogin();
 
     await user.type(screen.getByLabelText(/username/i), 'demodoctor');
-    await user.type(screen.getByLabelText(/password/i), 'wrong');
+    await user.type(screen.getByLabelText('Password'), 'wrong');
     await user.click(screen.getByRole('button', { name: /^sign in$/i }));
 
     await waitFor(() =>

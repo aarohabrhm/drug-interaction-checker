@@ -102,6 +102,7 @@ export function Interactions() {
   return (
     <div>
       <PageHeader
+        eyebrow="Reference"
         title="Interaction database"
         description="Every drug pair SafeMeds knows about, and how serious each one is."
       />

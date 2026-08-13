@@ -33,6 +33,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 
+from .models import Doctor
 from backend.schema import (
     ERROR_RESPONSES,
     ErrorResponseSerializer,
@@ -44,6 +45,9 @@ from .serializers import (
     DoctorProfileSerializer,
     LoginRequestSerializer,
     LoginResponseSerializer,
+    PasswordChangeRequestSerializer,
+    PasswordChangeResponseSerializer,
+    ProfileUpdateSerializer,
     SignupRequestSerializer,
     SignupResponseSerializer,
 )
@@ -225,6 +229,118 @@ def get_user_details(request):
     return Response(
         {
             "username": request.user.username,
+            "email": request.user.email,
             "specialty": (doctor.specialty if doctor and doctor.specialty else "Not Specified"),
         }
     )
+
+
+@extend_schema(
+    tags=["auth"],
+    summary="Update your profile",
+    description=(
+        "Changes your own details. Username is not editable -- it is the login "
+        "identifier, and changing it mid-session only invites lockouts."
+    ),
+    request=ProfileUpdateSerializer,
+    responses={200: DoctorProfileSerializer, **ERROR_RESPONSES},
+)
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def update_profile(request):
+    """Update the authenticated doctor's own profile."""
+    serializer = ProfileUpdateSerializer(data=request.data, partial=True)
+    if not serializer.is_valid():
+        return _error(
+            "validation_error",
+            "The submitted data was invalid.",
+            {"fields": serializer.errors},
+        )
+
+    data = serializer.validated_data
+
+    with transaction.atomic():
+        if "email" in data:
+            request.user.email = data["email"].strip()
+            request.user.save(update_fields=["email"])
+
+        if "specialty" in data:
+            # `get_or_create` because an account made before the Doctor row
+            # existed would otherwise have nowhere to store this.
+            doctor, _ = Doctor.objects.get_or_create(user=request.user)
+            doctor.specialty = data["specialty"].strip() or None
+            doctor.save(update_fields=["specialty"])
+
+    logger.info("Profile updated by %s", request.user.username)
+
+    doctor = getattr(request.user, "doctor", None)
+    return Response(
+        {
+            "username": request.user.username,
+            "email": request.user.email,
+            "specialty": (
+                doctor.specialty if doctor and doctor.specialty else "Not Specified"
+            ),
+        }
+    )
+
+
+@extend_schema(
+    tags=["auth"],
+    summary="Change your password",
+    description=(
+        "Requires the current password. On success the old token is destroyed "
+        "and a new one returned, so any other session is signed out."
+    ),
+    request=PasswordChangeRequestSerializer,
+    responses={200: PasswordChangeResponseSerializer, **ERROR_RESPONSES},
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([LoginRateThrottle])
+def change_password(request):
+    """Change the authenticated doctor's password."""
+    current = request.data.get("current_password") or ""
+    new = request.data.get("new_password") or ""
+
+    if not current or not new:
+        return _error(
+            "validation_error",
+            "The submitted data was invalid.",
+            {
+                "fields": {
+                    **({} if current else {"current_password": ["This field is required."]}),
+                    **({} if new else {"new_password": ["This field is required."]}),
+                }
+            },
+        )
+
+    # Re-authenticate rather than trusting the session: a token left open on a
+    # shared machine must not be enough to take the account over.
+    if not request.user.check_password(current):
+        return _error(
+            "invalid_credentials",
+            "That is not your current password.",
+            {"fields": {"current_password": ["Incorrect."]}},
+            http_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        validate_password(new, request.user)
+    except ValidationError as exc:
+        return _error(
+            "validation_error",
+            "The submitted data was invalid.",
+            {"fields": {"new_password": list(exc.messages)}},
+        )
+
+    with transaction.atomic():
+        request.user.set_password(new)
+        request.user.save(update_fields=["password"])
+        # Every existing token dies with the old password; the caller gets a
+        # fresh one so their own session survives the change.
+        Token.objects.filter(user=request.user).delete()
+        token = Token.objects.create(user=request.user)
+
+    logger.info("Password changed by %s", request.user.username)
+    return Response({"message": "Password changed.", "token": token.key})

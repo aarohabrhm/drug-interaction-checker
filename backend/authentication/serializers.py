@@ -43,4 +43,33 @@ class LoginResponseSerializer(serializers.Serializer):
 
 class DoctorProfileSerializer(serializers.Serializer):
     username = serializers.CharField()
+    email = serializers.EmailField(allow_blank=True, required=False)
     specialty = serializers.CharField()
+
+
+class ProfileUpdateSerializer(serializers.Serializer):
+    """Fields a doctor may change about themselves.
+
+    Username is deliberately absent: it is the login identifier, and letting it
+    change mid-session invites lockouts for no real benefit.
+    """
+
+    specialty = serializers.CharField(
+        max_length=100, required=False, allow_blank=True
+    )
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+
+class PasswordChangeRequestSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(
+        write_only=True,
+        help_text="Checked against AUTH_PASSWORD_VALIDATORS (min 10 characters).",
+    )
+
+
+class PasswordChangeResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+    token = serializers.CharField(
+        help_text="A fresh token. The previous one is invalidated by the change."
+    )

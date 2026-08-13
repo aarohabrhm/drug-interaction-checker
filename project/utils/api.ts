@@ -93,6 +93,12 @@ function toApiError(error: unknown, fallback: string): ApiError {
   return new ApiError(fallback, "unknown_error");
 }
 
+export interface DoctorProfile {
+  username: string;
+  email?: string;
+  specialty: string;
+}
+
 export interface Patient {
   id: string;
   name: string;
@@ -309,10 +315,7 @@ export const fetchPatients = async (
   }
 };
 
-export const fetchDoctorDetails = async (): Promise<{
-  username: string;
-  specialty: string;
-} | null> => {
+export const fetchDoctorDetails = async (): Promise<DoctorProfile | null> => {
   if (!getAuthToken()) {
     return null;
   }
@@ -441,6 +444,41 @@ export const checkPrescriptionInteractions = async (
     };
   } catch (error) {
     throw toApiError(error, "Failed to check drug interactions.");
+  }
+};
+
+/** Update your own details. Username is not editable server-side. */
+export const updateProfile = async (changes: {
+  specialty?: string;
+  email?: string;
+}): Promise<DoctorProfile> => {
+  try {
+    const response = await api.patch<DoctorProfile>('/auth/user/update/', changes);
+    return response.data;
+  } catch (error) {
+    throw toApiError(error, 'Could not save your details.');
+  }
+};
+
+/**
+ * Change your password.
+ *
+ * The server destroys every existing token and issues a fresh one, so this
+ * stores the new token to keep the current session alive -- without it the very
+ * next request would 401.
+ */
+export const changePassword = async (
+  currentPassword: string,
+  newPassword: string
+): Promise<void> => {
+  try {
+    const response = await api.post<{ token: string }>('/auth/user/password/', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    if (response.data.token) setAuthToken(response.data.token);
+  } catch (error) {
+    throw toApiError(error, 'Could not change your password.');
   }
 };
 

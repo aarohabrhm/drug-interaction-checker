@@ -144,6 +144,7 @@ export function Patients() {
   return (
     <div>
       <PageHeader
+        eyebrow="Your list"
         title="Patients"
         description="Everyone in your care. Their medication lists are what new prescriptions get checked against."
         actions={

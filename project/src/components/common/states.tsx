@@ -4,6 +4,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 interface PageHeaderProps {
+  /** Mono, uppercase, above the title. Names the section, not the page. */
+  eyebrow?: string;
   title: string;
   description?: string;
   /** Primary action, and any secondary controls. */
@@ -11,21 +13,38 @@ interface PageHeaderProps {
   className?: string;
 }
 
-export function PageHeader({ title, description, actions, className }: PageHeaderProps) {
+/**
+ * The head of every screen.
+ *
+ * Same construction as the landing page: a mono eyebrow, a display heading, and
+ * a hairline closing the block. Rules do the separating here rather than boxes,
+ * which keeps the page quiet enough for the clinical colours to carry weight.
+ */
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+  className,
+}: PageHeaderProps) {
   return (
-    <div
-      className={cn(
-        'mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
-        className
-      )}
-    >
-      <div className="min-w-0">
-        <h1 className="text-display text-foreground">{title}</h1>
-        {description && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-        )}
+    <div className={cn('mb-8 border-b border-border pb-6', className)}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          {eyebrow && (
+            <p className="mb-3 text-label font-mono uppercase text-muted-foreground">
+              {eyebrow}
+            </p>
+          )}
+          <h1 className="text-display-lg text-foreground">{title}</h1>
+          {description && (
+            <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
+              {description}
+            </p>
+          )}
+        </div>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );
 }

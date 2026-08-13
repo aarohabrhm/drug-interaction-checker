@@ -33,6 +33,7 @@ export function AddPrescription() {
   return (
     <div>
       <PageHeader
+        eyebrow="Screening"
         title="Interaction checker"
         description="Check a new prescription against what your patient already takes. Nothing is saved until you confirm."
       />

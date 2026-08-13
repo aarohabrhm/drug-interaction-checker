@@ -124,6 +124,7 @@ export function PrescriptionHistory() {
   return (
     <div>
       <PageHeader
+        eyebrow="Record"
         title="Prescriptions"
         description="Everything you have prescribed, with the warnings you saw at the time."
         actions={<Button onClick={() => navigate('/check')}>Screen a prescription</Button>}
