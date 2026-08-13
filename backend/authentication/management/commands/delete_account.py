@@ -6,6 +6,20 @@ the patients scoped to an account go with it.
 
     python manage.py delete_account probe1786623617
     python manage.py delete_account alice bob --yes
+
+Against a deployed database, `settings.py` still has to import, so the usual
+production variables must be present even though none of them affect what is
+written here. Django reports a missing one as `KeyError: 'delete_account'`
+first -- it fails to find the command, then fails again while loading settings
+to search harder -- so the real error is the second traceback, not the first:
+
+    DJANGO_DEBUG=false \\
+    DJANGO_SECRET_KEY=offline-task-key-not-used-for-serving \\
+    DJANGO_ALLOWED_HOSTS=localhost \\
+    DATABASE_URL='<external database url>' \\
+    python manage.py delete_account <username>
+
+`scripts/load-production-data.sh` sets these for the commands it runs.
 """
 
 from django.contrib.auth.models import User
