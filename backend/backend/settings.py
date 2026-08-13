@@ -389,6 +389,20 @@ if "*" in CORS_ALLOWED_ORIGINS:
         "data over credentialed requests; list exact origins instead."
     )
 
+if not DEBUG and not CORS_ALLOWED_ORIGINS and not TESTING and not _IS_LENIENT:
+    # Not fatal: an API with no browser clients is a legitimate deployment, and
+    # refusing to boot would take a working service down over a frontend
+    # setting. But left unsaid this is close to undiagnosable -- the browser
+    # blocks the request before the server records anything, the API looks
+    # perfectly healthy in every log and probe, and the only visible symptom is
+    # the frontend reporting that some unrelated action failed.
+    sys.stderr.write(
+        "[safemeds] CORS_ALLOWED_ORIGINS is empty with DJANGO_DEBUG=false. "
+        "No browser origin can call this API: requests will fail in the "
+        "browser while the server reports no error. Set it to the frontend's "
+        "absolute origin, e.g. https://app.example.com\n"
+    )
+
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 

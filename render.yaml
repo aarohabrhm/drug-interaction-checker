@@ -3,14 +3,20 @@
 # Deploy: push this file, then in the Render dashboard choose
 # "New +" -> "Blueprint" and point it at this repository.
 #
-# The two services need each other's URL, and both are wired automatically from
-# the real hostnames Render assigns -- so nothing has to be typed in, and it
-# stays correct even when Render appends a suffix to a service name that is
-# already taken globally.
+# The frontend gets the API's address automatically. The API cannot get the
+# frontend's the same way, so Render prompts for two values on the first deploy:
 #
-# The only prompt is GEMINI_API_KEY, which is optional: leave it blank and the
-# app resolves interactions from the curated dataset and openFDA, logs a single
-# warning, and runs normally.
+#   CORS_ALLOWED_ORIGINS          -> the frontend's address
+#   DJANGO_CSRF_TRUSTED_ORIGINS   -> the same
+#
+# The frontend does not exist yet at that point, so its address is not known.
+# Enter the expected value (https://safemeds-web.onrender.com), then correct it
+# from the dashboard afterwards if Render suffixed the name. Getting this wrong
+# does not break the deploy -- it makes the browser block every API call while
+# the service itself looks healthy.
+#
+# GEMINI_API_KEY is also prompted and is optional: leave it blank and the app
+# resolves interactions from the curated dataset and openFDA.
 
 databases:
   - name: safemeds-db
@@ -55,20 +61,19 @@ services:
       # hostname including any suffix it added. Set this only to serve an
       # additional custom domain.
 
-      # Both are derived from the frontend's real hostname rather than typed in.
-      # `fromService` yields a bare host with no scheme; settings.py reads a
-      # scheme-less origin as https, which is the only scheme this is served
-      # over in production.
+      # Set these to the frontend's address once it exists. `fromService` does
+      # not populate them reliably for a static site, and an empty value is
+      # near-undiagnosable: the browser blocks the request before it reaches
+      # the server, so the API stays healthy in every log and probe while the
+      # frontend reports that requests failed. Prompting is worth the extra step.
+      #
+      # Either form works -- settings.py reads a scheme-less value as https:
+      #   safemeds-web.onrender.com
+      #   https://safemeds-web.onrender.com
       - key: CORS_ALLOWED_ORIGINS
-        fromService:
-          type: web
-          name: safemeds-web
-          property: host
+        sync: false
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
-        fromService:
-          type: web
-          name: safemeds-web
-          property: host
+        sync: false
 
       # TLS terminates at Render's proxy, which sets X-Forwarded-Proto.
       - key: DJANGO_SECURE_SSL_REDIRECT
