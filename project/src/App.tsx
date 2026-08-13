@@ -11,6 +11,8 @@ const Home = lazy(() => import('./pages/landing'));
 const Signup = lazy(() => import('./pages/SignUp'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const PrescriptionHistory = lazy(() => import('./pages/PrescriptionHistory'));
+const Patients = lazy(() => import('./pages/Patients'));
+const PatientDetail = lazy(() => import('./pages/PatientDetail'));
 // These two are named exports; React.lazy needs a module with a `default`.
 const Login = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })));
 const AddPrescription = lazy(() =>
@@ -106,6 +108,22 @@ function App() {
             element={
               <Suspense fallback={<RouteFallback />}>
                 <AddPrescription />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/patients"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <Patients />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/patients/:patientId"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <PatientDetail />
               </Suspense>
             }
           />
