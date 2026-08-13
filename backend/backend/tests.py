@@ -9,7 +9,7 @@ import os
 import re
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from .settings import _origins, build_cache_config
@@ -60,6 +60,43 @@ class HealthProbeRedirectExemptionTests(SimpleTestCase):
         """Proves the test above is actually testing something."""
         response = self.client.get(reverse("liveness"))
         self.assertEqual(response.status_code, 301)
+
+
+class HealthProbeThrottlingTests(TestCase):
+    """Probes must answer every time, however often they are polled.
+
+    A platform polls these every few seconds -- far above the 60/hour anonymous
+    allowance -- so inheriting the default throttle makes the probe start
+    returning 429 and the orchestrator concludes a healthy service is unhealthy.
+    In production the counters live in a database-backed cache that outlives the
+    container, so the exhausted allowance survives restarts and fails every
+    later deploy as well.
+    """
+
+    def test_liveness_survives_far_more_requests_than_the_anon_allowance(self):
+        # The anonymous rate is 60/hour; a platform would exceed that in minutes.
+        for i in range(80):
+            response = self.client.get(reverse("liveness"))
+            self.assertEqual(
+                response.status_code, 200, f"throttled after {i} probes"
+            )
+
+    def test_readiness_survives_the_same_polling(self):
+        for i in range(80):
+            response = self.client.get(reverse("readiness"))
+            self.assertEqual(
+                response.status_code, 200, f"throttled after {i} probes"
+            )
+
+    def test_liveness_does_not_query_the_database(self):
+        """The throttle read the cache, which in production *is* the database.
+
+        A liveness probe that depends on the database cannot distinguish
+        "process wedged" from "database briefly slow", which is the whole
+        reason it is separate from readiness.
+        """
+        with self.assertNumQueries(0):
+            self.client.get(reverse("liveness"))
 
 
 class OriginNormalizationTests(SimpleTestCase):

@@ -17,6 +17,10 @@ databases:
     plan: free
     databaseName: drug_checker
     user: safemeds
+    # Must match the API's region. `fromDatabase` supplies the *internal*
+    # connection string, which is only reachable from the same region -- a
+    # mismatch leaves the API unable to reach the database at all.
+    region: oregon
 
 services:
   # ------------------------------------------------------------------ backend
