@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from .models import (
     SEVERITY_RANK,
+    DrugInteraction,
     PatientList,
     Prescription,
     PrescriptionItem,
@@ -262,3 +263,69 @@ class InteractionCheckResponseSerializer(serializers.Serializer):
     message = serializers.CharField(
         required=False, help_text="Only present on a complete, clean screen."
     )
+
+
+class DrugSuggestionSerializer(serializers.Serializer):
+    """One autocomplete result."""
+
+    name = serializers.CharField(help_text="Drug name as it appears in the source.")
+    source = serializers.ChoiceField(
+        choices=["dataset", "patient"],
+        help_text=(
+            "`dataset` -- appears in the interaction table, so pairs involving it "
+            "can be graded. `patient` -- taken from one of your patients' "
+            "medication lists."
+        ),
+    )
+
+
+class DrugSearchResponseSerializer(serializers.Serializer):
+    results = DrugSuggestionSerializer(many=True)
+
+
+class DrugInteractionSerializer(serializers.ModelSerializer):
+    """A graded pair, for browsing the dataset."""
+
+    severity_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DrugInteraction
+        fields = [
+            "id",
+            "drug_1",
+            "drug_2",
+            "interaction",
+            "severity",
+            "severity_label",
+            "management_recommendation",
+        ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_severity_label(self, obj):
+        return obj.get_severity_display()
+
+
+class SeverityCountSerializer(serializers.Serializer):
+    severity = serializers.CharField()
+    count = serializers.IntegerField()
+
+
+class StatsResponseSerializer(serializers.Serializer):
+    """Counts for the dashboard, scoped to the requesting doctor."""
+
+    patients = serializers.IntegerField(help_text="Patients you have registered.")
+    prescriptions = serializers.IntegerField(help_text="Prescriptions you have issued.")
+    warnings = serializers.IntegerField(help_text="Interaction warnings raised for your patients.")
+    contraindicated = serializers.IntegerField(
+        help_text="Of those, how many were contraindicated."
+    )
+    unscreened_pairs = serializers.IntegerField(
+        help_text=(
+            "Drug pairs across your prescriptions that no source could answer. "
+            "Not a count of safe pairs -- a count of unanswered ones."
+        )
+    )
+    dataset_size = serializers.IntegerField(
+        help_text="Interactions loaded in the curated table. Not doctor-scoped."
+    )
+    by_severity = SeverityCountSerializer(many=True)

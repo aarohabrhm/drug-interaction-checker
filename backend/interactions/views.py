@@ -11,7 +11,7 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, Count, IntegerField, Q, Sum, Value, When
 from django.db.models.functions import Lower
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -27,6 +27,7 @@ from backend.schema import ERROR_RESPONSES, ErrorResponseSerializer
 from .models import (
     SEVERITY_RANK,
     DrugInteraction,
+    Severity,
     InteractionLookupCache,
     InteractionSource,
     PatientList,
@@ -37,11 +38,14 @@ from .models import (
 )
 from .normalization import resolve_many, unrecognized_names
 from .serializers import (
+    DrugInteractionSerializer,
+    DrugSearchResponseSerializer,
     InteractionCheckRequestSerializer,
     InteractionCheckResponseSerializer,
     InteractionWarningSerializer,
     PatientSerializer,
     PrescriptionSerializer,
+    StatsResponseSerializer,
 )
 from .services import InteractionFinding, lookup_interaction_externally
 
@@ -702,3 +706,168 @@ def prescription_detail(request, prescription_id):
     """One prescription with its medications and warnings."""
     prescription = get_object_or_404(_prescriptions_for(request.user), id=prescription_id)
     return Response(PrescriptionSerializer(prescription).data)
+
+
+# --------------------------------------------------------------------------- #
+# Reference data
+# --------------------------------------------------------------------------- #
+
+
+DRUG_SEARCH_LIMIT = 20
+
+
+@extend_schema(
+    tags=["reference"],
+    summary="Search drug names for autocomplete",
+    description=(
+        "Names drawn from the interaction dataset and from your own patients' "
+        "medication lists. Offering a name that exists in the dataset is what "
+        "keeps a typo from becoming an unscreened pair."
+    ),
+    parameters=[
+        OpenApiParameter("q", str, description="Prefix to match. Minimum 2 characters."),
+        OpenApiParameter("limit", int, description=f"Max results, capped at {DRUG_SEARCH_LIMIT}."),
+    ],
+    responses={200: DrugSearchResponseSerializer, **ERROR_RESPONSES},
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def drug_search(request):
+    """Autocomplete over known drug names."""
+    query = normalize_drug_name(request.query_params.get("q", ""))
+
+    # Two characters is where a prefix scan stops matching most of the table.
+    if len(query) < 2:
+        return Response({"results": []})
+
+    try:
+        limit = min(int(request.query_params.get("limit", DRUG_SEARCH_LIMIT)), DRUG_SEARCH_LIMIT)
+    except (TypeError, ValueError):
+        limit = DRUG_SEARCH_LIMIT
+    limit = max(limit, 1)
+
+    # The dataset is the more useful half: a name found here can actually be
+    # graded. Each column is queried separately and merged, because a drug may
+    # appear on either side of a pair.
+    seen = {}
+    for column in ("drug_1", "drug_2"):
+        rows = (
+            DrugInteraction.objects.filter(**{f"{column}__istartswith": query})
+            .values_list(column, flat=True)
+            .distinct()[: limit * 2]
+        )
+        for name in rows:
+            key = normalize_drug_name(name)
+            if key and key not in seen:
+                seen[key] = {"name": name, "source": "dataset"}
+
+    # Then anything this doctor's patients already take, so a medication that is
+    # not in the dataset can still be selected rather than retyped.
+    if len(seen) < limit:
+        for medications in _patients_for(request.user).values_list(
+            "current_medications", flat=True
+        ):
+            for raw in (medications or "").split(","):
+                name = raw.strip()
+                key = normalize_drug_name(name)
+                if key and key.startswith(query) and key not in seen:
+                    seen[key] = {"name": name, "source": "patient"}
+
+    results = sorted(seen.values(), key=lambda row: normalize_drug_name(row["name"]))
+    return Response({"results": results[:limit]})
+
+
+@extend_schema(
+    tags=["reference"],
+    summary="Browse the interaction dataset",
+    description=(
+        "The curated table itself, paginated. Read-only: this is reference data, "
+        "loaded by `import_interactions`, not something the API edits."
+    ),
+    parameters=[
+        OpenApiParameter("search", str, description="Match either drug name."),
+        OpenApiParameter("severity", str, description="Filter to one grade."),
+        OpenApiParameter("page", int),
+        OpenApiParameter("page_size", int, description="Max 100."),
+    ],
+    responses={200: DrugInteractionSerializer(many=True), **ERROR_RESPONSES},
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def interaction_list(request):
+    """Paginated browse over the curated dataset."""
+    queryset = DrugInteraction.objects.all()
+
+    search = (request.query_params.get("search") or "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(drug_1__icontains=search) | Q(drug_2__icontains=search)
+        )
+
+    severity = (request.query_params.get("severity") or "").strip().lower()
+    if severity:
+        valid = {choice for choice, _ in Severity.choices}
+        if severity not in valid:
+            return _error(
+                "validation_error",
+                f"severity must be one of: {', '.join(sorted(valid))}.",
+            )
+        queryset = queryset.filter(severity=severity)
+
+    # Ordered most dangerous first so the useful end of a 191k-row table is the
+    # end you land on, then by name for a stable page boundary.
+    queryset = queryset.annotate(
+        rank=Case(
+            *[When(severity=grade, then=Value(rank)) for grade, rank in SEVERITY_RANK.items()],
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    ).order_by("-rank", "drug_1", "drug_2")
+
+    paginator = PatientPagination()
+    page = paginator.paginate_queryset(queryset, request)
+    return paginator.get_paginated_response(DrugInteractionSerializer(page, many=True).data)
+
+
+@extend_schema(
+    tags=["reference"],
+    summary="Dashboard counts",
+    description=(
+        "Scoped to the requesting doctor, except `dataset_size`, which describes "
+        "the shared reference table."
+    ),
+    responses={200: StatsResponseSerializer, **ERROR_RESPONSES},
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def stats(request):
+    """Counts for the dashboard."""
+    patients = _patients_for(request.user)
+    prescriptions = _prescriptions_for(request.user)
+    warnings = SavedInteraction.objects.filter(patient__doctor=request.user)
+
+    by_severity = {
+        row["severity"]: row["count"]
+        for row in warnings.values("severity").annotate(count=Count("id"))
+    }
+
+    return Response(
+        {
+            "patients": patients.count(),
+            "prescriptions": prescriptions.count(),
+            "warnings": warnings.count(),
+            "contraindicated": by_severity.get(Severity.CONTRAINDICATED, 0),
+            # A total of pairs nobody could answer -- deliberately surfaced next
+            # to the warning count, because a low warning count paired with a
+            # high unscreened count is not a good result.
+            "unscreened_pairs": prescriptions.aggregate(
+                total=Sum("unscreened_pair_count")
+            )["total"]
+            or 0,
+            "dataset_size": DrugInteraction.objects.count(),
+            "by_severity": [
+                {"severity": grade, "count": by_severity.get(grade, 0)}
+                for grade, _ in Severity.choices
+            ],
+        }
+    )

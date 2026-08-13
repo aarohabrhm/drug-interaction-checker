@@ -1222,3 +1222,164 @@ class MedicationListUpdateTests(APITestCase):
         self.assertEqual(
             PatientList.objects.get(pk=self.patient.pk).medication_list(), ["warfarin"]
         )
+
+
+class ReferenceEndpointTests(APITestCase):
+    """Drug search, dataset browse and dashboard counts."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="drref", password="correct-horse-battery"
+        )
+        self.other = User.objects.create_user(
+            username="drother", password="correct-horse-battery"
+        )
+        self.patient = PatientList.objects.create(
+            doctor=self.user,
+            name="Ref Patient",
+            age=70,
+            medical_condition="AFib",
+            phone_number="5550000777",
+            email="ref@example.com",
+            current_medications="Coumadin, homeopathic-tincture",
+        )
+        DrugInteraction.objects.create(
+            drug_1="warfarin", drug_2="aspirin",
+            interaction="Bleeding risk.", severity=Severity.MAJOR,
+        )
+        DrugInteraction.objects.create(
+            drug_1="clarithromycin", drug_2="simvastatin",
+            interaction="Rhabdomyolysis risk.", severity=Severity.CONTRAINDICATED,
+        )
+        DrugInteraction.objects.create(
+            drug_1="warmup-not-a-drug", drug_2="placebo",
+            interaction="Ungraded.", severity=Severity.UNKNOWN,
+        )
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}"
+        )
+
+    # ------------------------------------------------------------- drug search
+
+    def test_search_requires_authentication(self):
+        self.client.credentials()
+        response = self.client.get(reverse("drug_search"), {"q": "war"})
+        self.assertEqual(response.status_code, 401)
+
+    def test_search_finds_dataset_names_on_either_side_of_a_pair(self):
+        # `simvastatin` only ever appears as drug_2, so a query that looked at
+        # one column would miss it.
+        names = [
+            row["name"]
+            for row in self.client.get(reverse("drug_search"), {"q": "simva"}).json()["results"]
+        ]
+        self.assertIn("simvastatin", names)
+
+    def test_search_ignores_a_query_that_is_too_short(self):
+        """One character matches most of a 191k-row table; it is not a search."""
+        response = self.client.get(reverse("drug_search"), {"q": "w"})
+        self.assertEqual(response.json()["results"], [])
+
+    def test_search_includes_the_doctors_own_patients_medications(self):
+        # Not in the dataset, but the doctor should still be able to pick it
+        # rather than retyping it and risking a typo.
+        results = self.client.get(reverse("drug_search"), {"q": "homeo"}).json()["results"]
+        self.assertEqual([row["source"] for row in results], ["patient"])
+
+    def test_search_does_not_leak_another_doctors_patients(self):
+        PatientList.objects.create(
+            doctor=self.other,
+            name="Hidden",
+            age=50,
+            medical_condition="x",
+            phone_number="1",
+            email="h@example.com",
+            current_medications="secretdrug",
+        )
+        results = self.client.get(reverse("drug_search"), {"q": "secret"}).json()["results"]
+        self.assertEqual(results, [])
+
+    def test_search_marks_where_each_suggestion_came_from(self):
+        results = self.client.get(reverse("drug_search"), {"q": "warfarin"}).json()["results"]
+        self.assertEqual(results[0]["source"], "dataset")
+
+    def test_search_respects_the_limit_cap(self):
+        response = self.client.get(reverse("drug_search"), {"q": "wa", "limit": "999"})
+        self.assertLessEqual(len(response.json()["results"]), 20)
+
+    # ---------------------------------------------------------- dataset browse
+
+    def test_browse_is_paginated(self):
+        body = self.client.get(reverse("interaction_list")).json()
+        self.assertIn("results", body)
+        self.assertEqual(body["count"], 3)
+
+    def test_browse_orders_most_dangerous_first(self):
+        """A 191k-row table is only useful if the top of it is the urgent end."""
+        rows = self.client.get(reverse("interaction_list")).json()["results"]
+        self.assertEqual(rows[0]["severity"], Severity.CONTRAINDICATED)
+        self.assertEqual(rows[-1]["severity"], Severity.UNKNOWN)
+
+    def test_browse_filters_by_severity(self):
+        body = self.client.get(reverse("interaction_list"), {"severity": "major"}).json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["results"][0]["drug_1"], "warfarin")
+
+    def test_browse_rejects_an_unknown_severity(self):
+        response = self.client.get(reverse("interaction_list"), {"severity": "extreme"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "validation_error")
+
+    def test_browse_searches_both_drug_columns(self):
+        body = self.client.get(reverse("interaction_list"), {"search": "simvastatin"}).json()
+        self.assertEqual(body["count"], 1)
+
+    def test_browse_includes_a_readable_severity_label(self):
+        rows = self.client.get(reverse("interaction_list")).json()["results"]
+        self.assertEqual(rows[0]["severity_label"], "Contraindicated")
+
+    # ------------------------------------------------------------------ stats
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_stats_are_scoped_to_the_requesting_doctor(self, _lookup):
+        PatientList.objects.create(
+            doctor=self.other,
+            name="Not mine",
+            age=40,
+            medical_condition="x",
+            phone_number="2",
+            email="n@example.com",
+            current_medications="aspirin",
+        )
+        body = self.client.get(reverse("stats")).json()
+        self.assertEqual(body["patients"], 1)
+
+    def test_stats_report_the_dataset_size(self):
+        self.assertEqual(self.client.get(reverse("stats")).json()["dataset_size"], 3)
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_stats_count_warnings_and_unscreened_pairs(self, _lookup):
+        self.client.post(
+            reverse("prescriptions"),
+            {
+                "patient": self.patient.id,
+                "diagnosis": "Test",
+                "items": [
+                    {"drug_name": "aspirin", "dosage": "1", "frequency": "OD", "duration": "7d"}
+                ],
+            },
+            format="json",
+        )
+        body = self.client.get(reverse("stats")).json()
+        self.assertEqual(body["prescriptions"], 1)
+        # Coumadin normalizes to warfarin only with RxNorm, which is off in
+        # tests -- so the pair is unanswerable rather than a warning. That is
+        # the point of reporting both numbers side by side.
+        self.assertGreaterEqual(body["warnings"] + body["unscreened_pairs"], 1)
+
+    def test_stats_list_every_severity_even_at_zero(self):
+        # A dashboard that hides empty grades makes "no contraindications" and
+        # "not counted" look the same.
+        grades = [row["severity"] for row in self.client.get(reverse("stats")).json()["by_severity"]]
+        self.assertEqual(len(grades), len(set(grades)))
+        self.assertIn("contraindicated", grades)

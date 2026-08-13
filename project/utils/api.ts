@@ -444,4 +444,88 @@ export const checkPrescriptionInteractions = async (
   }
 };
 
+// --------------------------------------------------------------------------- //
+// Reference data
+// --------------------------------------------------------------------------- //
+
+export interface DrugSuggestion {
+  name: string;
+  /** `dataset` can be graded; `patient` is a name one of your patients takes. */
+  source: 'dataset' | 'patient';
+}
+
+/**
+ * Autocomplete over known drug names.
+ *
+ * Offering a name that exists in the dataset is what stops a typo becoming an
+ * unscreened pair, so this is a safety feature as much as a convenience.
+ * Queries under two characters return nothing rather than most of the table.
+ */
+export const searchDrugs = async (
+  query: string,
+  limit = 10
+): Promise<DrugSuggestion[]> => {
+  if (query.trim().length < 2) return [];
+  try {
+    const response = await api.get<{ results: DrugSuggestion[] }>(
+      '/api/drugs/search/',
+      { params: { q: query.trim(), limit } }
+    );
+    return response.data.results ?? [];
+  } catch (error) {
+    throw toApiError(error, 'Could not search drug names.');
+  }
+};
+
+export interface DatasetInteraction {
+  id: number;
+  drug_1: string;
+  drug_2: string;
+  interaction: string;
+  severity: Severity;
+  severity_label: string;
+  management_recommendation: string;
+}
+
+export const fetchInteractions = async (params: {
+  search?: string;
+  severity?: string;
+  page?: number;
+  pageSize?: number;
+} = {}): Promise<Paginated<DatasetInteraction>> => {
+  try {
+    const response = await api.get<Paginated<DatasetInteraction>>('/api/interactions/', {
+      params: {
+        search: params.search || undefined,
+        severity: params.severity || undefined,
+        page: params.page,
+        page_size: params.pageSize,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    throw toApiError(error, 'Could not load the interaction dataset.');
+  }
+};
+
+export interface Stats {
+  patients: number;
+  prescriptions: number;
+  warnings: number;
+  contraindicated: number;
+  /** Pairs no source could answer. Not a count of safe pairs. */
+  unscreened_pairs: number;
+  dataset_size: number;
+  by_severity: { severity: Severity; count: number }[];
+}
+
+export const fetchStats = async (): Promise<Stats> => {
+  try {
+    const response = await api.get<Stats>('/api/stats/');
+    return response.data;
+  } catch (error) {
+    throw toApiError(error, 'Could not load your dashboard figures.');
+  }
+};
+
 export default api;

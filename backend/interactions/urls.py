@@ -26,4 +26,9 @@ urlpatterns = [
         views.save_prescription_and_check_interactions,
         name="check_prescription_interactions",
     ),
+    # Reference data. Read-only -- the interaction table is loaded by
+    # `import_interactions`, not edited through the API.
+    path("drugs/search/", views.drug_search, name="drug_search"),
+    path("interactions/", views.interaction_list, name="interaction_list"),
+    path("stats/", views.stats, name="stats"),
 ]
