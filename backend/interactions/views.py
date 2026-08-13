@@ -35,7 +35,7 @@ from .models import (
     TemporaryPrescription,
     normalize_drug_name,
 )
-from .normalization import resolve_many
+from .normalization import resolve_many, unrecognized_names
 from .serializers import (
     InteractionCheckRequestSerializer,
     InteractionCheckResponseSerializer,
@@ -277,6 +277,36 @@ def _resolve_known_pairs(pairs):
     return resolved, pairs - resolved.keys()
 
 
+def _unidentifiable_drugs(pairs):
+    """Names in `pairs` that no source can identify as a drug at all.
+
+    A name qualifies only when RxNorm positively rejected it *and* the curated
+    dataset does not grade it either. The dataset takes precedence because it is
+    the authoritative source here: an ingredient it knows is a real drug even if
+    RxNorm was unhelpful about the spelling.
+    """
+    names = {name for pair in pairs for name in pair}
+    if not names:
+        return set()
+
+    candidates = unrecognized_names(names)
+    if not candidates:
+        return set()
+
+    # Anything the dataset grades on either side is a genuine drug. One query;
+    # both columns are intersected with the candidates because a name may appear
+    # as either side of a graded pair.
+    known_to_dataset = set()
+    for drug_1, drug_2 in (
+        DrugInteraction.objects.annotate(d1=Lower("drug_1"), d2=Lower("drug_2"))
+        .filter(Q(d1__in=candidates) | Q(d2__in=candidates))
+        .values_list("d1", "d2")
+    ):
+        known_to_dataset.update(candidates.intersection((drug_1, drug_2)))
+
+    return candidates - known_to_dataset
+
+
 @extend_schema(
     tags=["prescriptions"],
     summary="Screen medications without issuing a prescription",
@@ -394,11 +424,35 @@ def _check_pairs(patient, new_meds, current_meds, user, prescription=None):
     if not pairs:
         return [], []
 
-    resolved, unknown = _resolve_known_pairs(pairs)
+    # A name RxNorm has never heard of cannot be screened at all. openFDA
+    # answers "no documents matched" for a nonexistent drug exactly as it does
+    # for a real drug with a clean label, so screening one would turn a typo
+    # into a confident all-clear -- the precise false negative this whole layer
+    # exists to prevent. The curated dataset overrides RxNorm: a name it grades
+    # is a real drug whatever RxNorm thinks.
+    #
+    # This runs *before* any lookup, including the local cache. An earlier
+    # release did screen these names, so a stale `InteractionLookupCache` row
+    # can hold a "nothing found" verdict for a drug that does not exist;
+    # consulting the cache first would hand that poisoned negative straight
+    # back. Deciding identifiability up front means such rows are never read.
+    unidentifiable = _unidentifiable_drugs(pairs)
+    if unidentifiable:
+        logger.warning(
+            "Unrecognized drug name(s) %s -- affected pairs reported as unscreened.",
+            ", ".join(sorted(unidentifiable)),
+        )
+
+    screenable = {pair for pair in pairs if not unidentifiable.intersection(pair)}
+    unscreened = sorted(pairs - screenable)
+
+    # `_resolve_known_pairs` handles an empty set, so no special case is needed
+    # when every pair involves an unidentifiable name -- the flow below falls
+    # through to the same display-name mapping the other paths use.
+    resolved, unknown = _resolve_known_pairs(screenable)
 
     # Only pairs nothing local can answer reach an external source.
     newly_cached = []
-    unscreened = []
     for pair in sorted(unknown):
         finding = lookup_interaction_externally(pair[0], pair[1])
         if finding is None:

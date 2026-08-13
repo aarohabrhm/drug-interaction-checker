@@ -486,10 +486,11 @@ class InteractionQueryCountTests(APITestCase):
         new_meds = [f"new{i}" for i in range(10)]
 
         # The old nested loop issued 2 queries per pair (200) plus one external
-        # call each. The dataset lookup, the cache lookup and the name-alias
-        # lookup are each a single query independent of pair count; the rest of
-        # the budget is auth, the patient fetch and scratch-row bookkeeping.
-        with self.assertNumQueries(12):
+        # call each. The dataset lookup, the cache lookup, the name-alias lookup
+        # and the unrecognized-name check are each a single query independent of
+        # pair count; the rest of the budget is auth, the patient fetch and
+        # scratch-row bookkeeping.
+        with self.assertNumQueries(13):
             response = self.client.post(
                 reverse("check_prescription_interactions"),
                 {"patient_id": self.patient.id, "new_medications": new_meds},
@@ -552,6 +553,135 @@ class NormalizationTests(APITestCase):
         DrugNameAlias.objects.create(queried_name="tylenol", ingredient="acetaminophen")
         with self.assertNumQueries(1):
             resolve_many(["Tylenol", "warfarin", "aspirin", "metformin"])
+
+
+class UnrecognizedDrugNameTests(APITestCase):
+    """A name nobody can identify must never come back as an all-clear.
+
+    openFDA answers "no documents matched" for a drug that does not exist
+    exactly as it does for a real drug with a clean label. Before this, a
+    mistyped name therefore produced a confident "No interactions found" --
+    the false negative the whole screening layer exists to prevent.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="drtypo", password="correct-horse-battery"
+        )
+        self.patient = PatientList.objects.create(
+            doctor=self.user,
+            name="Typo Test",
+            age=60,
+            medical_condition="Atrial fibrillation",
+            phone_number="5550000009",
+            email="typo@example.com",
+            current_medications="warfarin",
+        )
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}"
+        )
+
+    def _check(self, name):
+        return self.client.post(
+            reverse("check_prescription_interactions"),
+            {"patient_id": self.patient.id, "new_medications": [name]},
+            format="json",
+        )
+
+    def test_rxnorm_rejected_name_is_reported_unscreened_not_clear(self):
+        # RxNorm answered and had no match at all: no ingredient, no RxCUI.
+        DrugNameAlias.objects.create(queried_name="zzzfakedrug", ingredient="", rxcui="")
+
+        with patch("interactions.views.lookup_interaction_externally") as lookup:
+            response = self._check("zzzfakedrug")
+            # The pair must never reach an external source, which would report
+            # a definite negative for a drug that does not exist.
+            lookup.assert_not_called()
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["screening_complete"])
+        self.assertEqual(body["interactions"], [])
+        self.assertEqual(
+            body["unscreened_pairs"],
+            [{"drug_1": "warfarin", "drug_2": "zzzfakedrug"}],
+        )
+        # The all-clear message is what made this dangerous; it must be absent.
+        self.assertNotIn("message", body)
+
+    def test_stale_cached_negative_does_not_resurrect_the_all_clear(self):
+        """A poisoned cache row must not be handed back as a clean result.
+
+        The first version of this fix ran *after* the local cache was
+        consulted, so a "nothing found" row written by the older code -- which
+        did screen unidentifiable names -- was returned before the check could
+        apply. Identifiability is now decided before any lookup.
+        """
+        DrugNameAlias.objects.create(queried_name="zzzfakedrug", ingredient="", rxcui="")
+        InteractionLookupCache.objects.create(
+            drug_1="warfarin",
+            drug_2="zzzfakedrug",
+            interaction=None,  # how this table records "checked, found nothing"
+            severity=Severity.UNKNOWN,
+            source=InteractionSource.OPENFDA,
+        )
+
+        response = self._check("zzzfakedrug")
+
+        body = response.json()
+        self.assertFalse(body["screening_complete"])
+        self.assertEqual(
+            body["unscreened_pairs"],
+            [{"drug_1": "warfarin", "drug_2": "zzzfakedrug"}],
+        )
+        self.assertNotIn("message", body)
+
+    def test_name_the_dataset_grades_is_screened_even_if_rxnorm_rejects_it(self):
+        """The curated dataset outranks RxNorm on what counts as a real drug."""
+        DrugNameAlias.objects.create(queried_name="obscuredrug", ingredient="", rxcui="")
+        DrugInteraction.objects.create(
+            drug_1="warfarin",
+            drug_2="obscuredrug",
+            interaction="Increases bleeding risk.",
+            severity=Severity.MAJOR,
+        )
+
+        response = self._check("obscuredrug")
+
+        body = response.json()
+        self.assertTrue(body["screening_complete"])
+        self.assertEqual(len(body["interactions"]), 1)
+        self.assertEqual(body["interactions"][0]["severity"], Severity.MAJOR)
+
+    def test_uncached_name_is_not_treated_as_unrecognized(self):
+        """An absent alias row means "not looked up", never "does not exist".
+
+        With RxNorm unreachable nothing is cached, and inferring rejection from
+        that would make every drug unscreenable during an outage.
+        """
+        finding = InteractionFinding.none_found(InteractionSource.OPENFDA)
+        with patch(
+            "interactions.views.lookup_interaction_externally", return_value=finding
+        ) as lookup:
+            response = self._check("someunlistedbutrealdrug")
+            lookup.assert_called_once()
+
+        body = response.json()
+        self.assertTrue(body["screening_complete"])
+
+    def test_name_already_an_ingredient_is_not_treated_as_unrecognized(self):
+        """`ingredient=""` with an RxCUI means "this name IS the ingredient"."""
+        DrugNameAlias.objects.create(
+            queried_name="realingredient", ingredient="", rxcui="12345"
+        )
+        finding = InteractionFinding.none_found(InteractionSource.OPENFDA)
+        with patch(
+            "interactions.views.lookup_interaction_externally", return_value=finding
+        ) as lookup:
+            response = self._check("realingredient")
+            lookup.assert_called_once()
+
+        self.assertTrue(response.json()["screening_complete"])
 
 
 class BrandNameMatchingTests(APITestCase):

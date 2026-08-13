@@ -386,6 +386,13 @@ else:
     SECURE_HSTS_PRELOAD = True
     # Trust the reverse proxy's forwarded scheme (Heroku/Render/Fly/nginx).
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    # Health probes are requested over plain HTTP from inside the network --
+    # Docker's HEALTHCHECK, Render/Fly/Kubernetes liveness checks. Without this
+    # they receive a 301 to https. `curl -f` does not treat a 3xx as failure,
+    # so the container would report healthy without the probe ever running:
+    # a broken check that always passes is worse than no check at all.
+    # These two paths expose no data, so exempting them costs nothing.
+    SECURE_REDIRECT_EXEMPT = [r"^healthz/?$", r"^readyz/?$"]
 
 
 # --------------------------------------------------------------------------- #
@@ -418,13 +425,63 @@ MAX_CURRENT_MEDICATIONS = _int("MAX_CURRENT_MEDICATIONS", 50)
 # Caching
 # --------------------------------------------------------------------------- #
 
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "safemeds-default",
+# DRF's throttling counters live in this cache, so the backend choice is a
+# security decision, not a performance one. LocMemCache is per-process: under
+# gunicorn with N workers the effective login limit becomes N x the configured
+# rate, and every deploy resets it. That is a brute-force window, so it is
+# allowed only for local development.
+#
+# Order of preference:
+#   1. REDIS_URL       -- shared, fast, evicts on its own. Best if available.
+#   2. Postgres table  -- shared and correct with no extra service. The default
+#                         in production because it works on a free tier.
+#   3. LocMemCache     -- DEBUG only.
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+
+
+def build_cache_config(redis_url, debug, testing=False):
+    """Choose the default cache backend.
+
+    Split out as a function so the choice can be tested directly for every
+    combination, rather than only for whichever one this process happens to
+    boot with. Never returns LocMem for a real deployment.
+    """
+    # Checked before Redis so the suite never talks to a real cache server, and
+    # before the database backend because `migrate` does not create the cache
+    # table -- CI runs with DEBUG=false, so without this every throttled request
+    # would query a table that does not exist. The test runner is a single
+    # process, which is the one place LocMem's isolation is not a problem.
+    if testing:
+        return {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "safemeds-test",
+            "TIMEOUT": 300,
+        }
+    if redis_url:
+        return {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": redis_url,
+            "TIMEOUT": 300,
+        }
+    if debug:
+        return {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "safemeds-default",
+            "TIMEOUT": 300,
+        }
+    # `manage.py createcachetable` creates this table; the container entrypoint
+    # runs it alongside migrate. A missing table would fail open -- throttling
+    # silently disabled is exactly the failure you do not want on an auth
+    # endpoint -- which is why creating it is part of the deploy, not a manual
+    # step someone has to remember.
+    return {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "safemeds_cache",
         "TIMEOUT": 300,
     }
-}
+
+
+CACHES = {"default": build_cache_config(REDIS_URL, DEBUG, TESTING)}
 
 
 # --------------------------------------------------------------------------- #

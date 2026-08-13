@@ -1,0 +1,10 @@
+# Shell scripts must use LF regardless of the checkout platform: this repo is
+# developed on Windows but the entrypoint runs inside a Linux container, and a
+# CRLF shebang line fails with a confusing "no such file or directory".
+# The Dockerfile strips CRs as a second line of defence.
+*.sh text eol=lf
+
+# Same reasoning for container and CI files that Linux tooling reads.
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
