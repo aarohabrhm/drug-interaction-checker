@@ -120,6 +120,119 @@ jobs:
           VITE_API_BASE_URL: https://api.example.com
         run: npm run build
 
+  container:
+    name: Container smoke test
+    runs-on: ubuntu-latest
+
+    # The jobs above never build the image or start a container, so nothing
+    # verified how the app behaves when actually deployed. Every deployment
+    # failure this project has had lived in that gap: a healthcheck on the wrong
+    # port, probes rejected by rate limiting, probes rejected by ALLOWED_HOSTS.
+    # None were reachable from a Django test; all are reachable from here.
+    #
+    # Conditions mirror a real platform rather than a convenient local setup:
+    # a non-default $PORT, DEBUG off, and the SSL redirect enabled.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: safemeds_smoke
+          POSTGRES_USER: safemeds
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Platforms assign a port; Render uses 10000. Using the default here
+      # would hide exactly the mismatch that broke a deploy.
+      APP_PORT: "10000"
+      APP_HOST: safemeds-api.onrender.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t safemeds-api:ci ./backend
+
+      - name: Start the container
+        run: |
+          docker run -d --name safemeds --network host \
+            -e PORT="$APP_PORT" \
+            -e DJANGO_DEBUG=false \
+            -e DJANGO_SECRET_KEY=ci-only-4f8b2d7e9a1c6035b8e4d2f7a9c1e63b5d0a8f2c7e94b1d6 \
+            -e DJANGO_ALLOWED_HOSTS="$APP_HOST" \
+            -e DATABASE_URL=postgres://safemeds:ci-only-password@localhost:5432/safemeds_smoke \
+            -e CORS_ALLOWED_ORIGINS=https://safemeds-web.onrender.com \
+            -e RXNORM_ENABLED=false \
+            -e OPENFDA_ENABLED=false \
+            safemeds-api:ci
+
+      - name: Wait for the app to serve
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS -H "Host: $APP_HOST" "http://localhost:$APP_PORT/healthz" >/dev/null 2>&1; then
+              echo "serving after ${i}s"; exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' safemeds)" != "true" ]; then
+              echo "::error::container exited before serving"; docker logs safemeds; exit 1
+            fi
+            sleep 1
+          done
+          echo "::error::timed out waiting for the app"; docker logs safemeds; exit 1
+
+      - name: Entrypoint ran migrations
+        # The image runs migrate itself; a deploy against an empty database
+        # depends on it.
+        run: docker logs safemeds 2>&1 | grep -q "Applying database migrations"
+
+      - name: Probes answer on the assigned port
+        run: |
+          curl -fsS -H "Host: $APP_HOST" "http://localhost:$APP_PORT/healthz" | grep -q '"ok"'
+          curl -fsS -H "Host: $APP_HOST" "http://localhost:$APP_PORT/readyz"  | grep -q '"database": *"ok"'
+
+      - name: Probes survive sustained polling
+        # A platform polls far above the anonymous rate limit. Throttled probes
+        # made a healthy service look unhealthy and failed the deploy.
+        run: |
+          for i in $(seq 1 80); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Host: $APP_HOST" "http://localhost:$APP_PORT/healthz")
+            if [ "$code" != "200" ]; then
+              echo "::error::probe $i returned $code (rate limited?)"; exit 1
+            fi
+          done
+
+      - name: Docker's own healthcheck reports healthy
+        # It probes $PORT from inside the container; a hardcoded port passes
+        # locally and fails wherever the platform assigns a different one.
+        run: |
+          for i in $(seq 1 60); do
+            s=$(docker inspect -f '{{.State.Health.Status}}' safemeds 2>/dev/null || echo none)
+            case "$s" in
+              healthy) echo "healthy after ${i}s"; exit 0 ;;
+              unhealthy) echo "::error::container reported unhealthy"; docker logs safemeds; exit 1 ;;
+            esac
+            sleep 1
+          done
+          echo "::error::healthcheck never became healthy"; docker inspect -f '{{json .State.Health}}' safemeds; exit 1
+
+      - name: An unknown Host is still rejected
+        # Guards the ALLOWED_HOSTS fix against becoming a wildcard.
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Host: evil.example.com" "http://localhost:$APP_PORT/healthz")
+          [ "$code" = "400" ] || { echo "::error::expected 400, got $code"; exit 1; }
+
+      - name: Container logs
+        if: always()
+        run: docker logs safemeds 2>&1 | tail -40
+
   security:
     name: Dependency audit
     runs-on: ubuntu-latest
