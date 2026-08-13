@@ -178,3 +178,34 @@ def resolve_many(names):
             cached[name] = _fetch_and_cache(name)
         resolved.append(cached[name] or name)
     return resolved
+
+
+def unrecognized_names(names):
+    """Return the names RxNorm positively said it has never heard of.
+
+    This is deliberately narrow. Only a *definite* rejection counts:
+
+    * a cached alias with no ingredient **and no RxCUI** -- RxNorm answered and
+      had no match at all;
+    * never an absent cache row, which means the lookup could not be performed
+      (RxNorm disabled, offline, or timed out).
+
+    The `rxcui` check is what separates the two empty-ingredient cases:
+    `_fetch_ingredient` returns `("", rxcui)` for a name that *is* already an
+    ingredient, and `("", "")` only when the name matched nothing.
+
+    Callers use this to refuse to screen a name nobody can identify, instead of
+    letting "no drug by that name" collapse into "no interactions found".
+    """
+    wanted = {normalize_drug_name(n) for n in names}
+    wanted.discard("")
+    if not wanted:
+        return set()
+
+    return {
+        queried
+        for queried, ingredient, rxcui in DrugNameAlias.objects.filter(
+            queried_name__in=wanted
+        ).values_list("queried_name", "ingredient", "rxcui")
+        if not ingredient and not rxcui
+    }

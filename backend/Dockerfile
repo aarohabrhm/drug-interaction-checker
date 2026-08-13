@@ -46,6 +46,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 COPY --chown=safemeds:safemeds . .
 
+# Normalize line endings and set the executable bit here rather than relying on
+# the checkout: this repo is developed on Windows, where neither survives git.
+RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
+
 # Collect static assets at build time. `settings.py` treats collectstatic as a
 # lenient command, so this works without production secrets present.
 RUN DJANGO_DEBUG=false python manage.py collectstatic --noinput \
@@ -56,9 +60,14 @@ USER safemeds
 
 EXPOSE 8000
 
+# `--fail-with-body` is not enough on its own: curl treats a 3xx as success, so
+# before healthz was exempted from SECURE_SSL_REDIRECT this probe passed on the
+# 301 without ever reaching the app. Both halves of that fix matter.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:8000/healthz || exit 1
 
-# Exec form so gunicorn is PID 1 and receives SIGTERM directly -- that is what
-# makes `docker stop` drain in-flight requests instead of killing them.
+# Migrations run here, then gunicorn is exec'd into PID 1 so it receives
+# SIGTERM directly -- that is what makes `docker stop` drain in-flight requests
+# instead of killing them.
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["gunicorn", "backend.wsgi:application", "-c", "gunicorn.conf.py"]

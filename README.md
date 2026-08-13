@@ -5,9 +5,10 @@ current medications. Interactions are resolved from a local dataset first, then
 from a cached external lookup (Google Gemini) for pairs the dataset does not
 cover.
 
-> **Status: not production-ready.** Credentials that were committed to this
-> repository's git history still need rotating, and several items remain open.
-> See [Before you deploy](#before-you-deploy).
+> **Status: deployable, with one thing you must do first.** The credentials in
+> this repository's git history still need rotating — everything else on the
+> old blocking list is closed. See [Before you deploy](#before-you-deploy)
+> and [Deploying to Render](#deploying-to-render).
 
 ## Tech stack
 
@@ -235,6 +236,27 @@ issued without full screening. Treating "we could not check" as "nothing found"
 is the most dangerous mistake this app could make, so it is surfaced everywhere:
 API, prescribing screen, and history.
 
+#### Unrecognized drug names
+
+A name no source can identify as a drug is reported as **unscreened**, never as
+clear. This closes a false negative that used to be reachable with a typo:
+
+```bash
+# 'warfarrinn' is a misspelling. Previously: {"message": "No interactions found"}
+{"interactions": [],
+ "unscreened_pairs": [{"drug_1": "methotrexate", "drug_2": "warfarrinn"}],
+ "screening_complete": false}
+```
+
+openFDA answers "no documents matched" for a drug that does not exist in exactly
+the same way it does for a real drug with a clean label, so a mistyped name used
+to produce a confident green all-clear. Identifiability is now decided *before*
+any lookup runs — including the local cache, since rows written by the older
+code could otherwise hand the stale negative straight back. A name the curated
+dataset grades is always treated as real, whatever RxNorm makes of the spelling,
+and a name that simply could not be looked up (RxNorm unreachable) is never
+mistaken for one that was positively rejected.
+
 Tokens expire after `AUTH_TOKEN_TTL_HOURS` (default 12) and are rotated on every
 login.
 
@@ -259,7 +281,7 @@ annotation breaks the build rather than silently degrading the docs.
 ## Tests
 
 ```bash
-cd backend && python manage.py test          # 70 tests
+cd backend && python manage.py test          # 85 tests
 
 cd project && npm test                       # 31 tests
 npm run test:watch                           # watch mode
@@ -290,13 +312,28 @@ safety-critical rendering: that "checked and clear", "found something" and
 
 ## Before you deploy
 
-Blocking items, in order:
+**One blocking item remains:**
 
 1. **Rotate the leaked credentials.** The Django `SECRET_KEY` and the Postgres
    password `sql@123` are present in every commit of this repository's history.
    Removing them from the working tree does not remove them from history.
    Rotate both, and purge history (or make the repo private) if it was ever
-   public.
+   public. `render.yaml` generates a fresh `SECRET_KEY` for you, so the leaked
+   one is never reused — but treat the old values as burned regardless.
+
+Handled automatically, previously manual:
+
+- **Migrations** run in the container entrypoint (`backend/docker-entrypoint.sh`),
+  so a fresh deploy no longer boots against an empty database.
+- **The throttle cache** uses Redis when `REDIS_URL` is set, and a shared
+  Postgres cache table otherwise. The per-process in-memory backend — under
+  which N gunicorn workers meant N× the configured login rate limit — is now
+  reachable only with `DJANGO_DEBUG=true`.
+- **Health probes** are exempt from the SSL redirect, so container and platform
+  checks reach the app instead of passing vacuously on a 301.
+
+Still your responsibility:
+
 2. **Set every required environment variable** in your platform's secret store
    (`backend/.env.example` is the full list).
 3. **Serve over HTTPS.** `DJANGO_DEBUG=false` turns on HSTS, secure cookies and
@@ -307,7 +344,40 @@ Blocking items, in order:
 5. Review the remaining dependency advisories — `npm audit` in `project/`
    reports 4 (1 high, 3 moderate), all requiring major version bumps. The high
    one is a Vite **dev-server** path traversal: it is not present in the
-   production bundle, but fixing it means moving to Vite 8.
+   production bundle, but fixing it means moving to Vite 8. The react-router
+   advisories need react-router-dom 7.x; `npm audit fix` alone will not take
+   them, because the fixed range is outside the current major.
+
+## Deploying to Render
+
+`render.yaml` is a Blueprint covering the database, the Dockerized API and the
+static frontend. In the Render dashboard: **New +** → **Blueprint** → point it
+at this repository.
+
+Two values cannot be wired automatically, because each service needs the
+other's full URL and Render's `fromService` exposes only a bare hostname. Render
+prompts for both on the first deploy:
+
+| Service        | Variable               | Value                              |
+| -------------- | ---------------------- | ---------------------------------- |
+| `safemeds-api` | `CORS_ALLOWED_ORIGINS` | `https://safemeds-web.onrender.com` |
+| `safemeds-api` | `DJANGO_CSRF_TRUSTED_ORIGINS` | same as above               |
+| `safemeds-web` | `VITE_API_BASE_URL`    | `https://safemeds-api.onrender.com` |
+
+Render appends a suffix when a service name is already taken globally, so copy
+the real URLs from the dashboard rather than assuming those names.
+
+`VITE_API_BASE_URL` is inlined into the bundle at **build** time, so changing it
+requires a rebuild, not just a restart.
+
+After the first deploy, seed a demo account to make the app explorable:
+
+```bash
+python manage.py seed_demo --password <choose one>
+```
+
+On Render's free tier the API sleeps after inactivity, so the first request
+after an idle period takes a few seconds to wake it.
 
 ## Handling patient data
 
