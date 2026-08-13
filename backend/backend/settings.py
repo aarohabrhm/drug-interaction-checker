@@ -110,12 +110,36 @@ if not DEBUG and SECRET_KEY.startswith("django-insecure-"):
 
 ALLOWED_HOSTS = _csv("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"] if DEBUG else [])
 
+# Hosting platforms publish the public hostname they assigned to this service.
+# Trusting it matters because the name is not known until the service exists:
+# platforms append a suffix when the requested name is taken, and a service
+# cannot reliably look up its own address from a config file. Without this the
+# health probe arrives with a Host header nothing recognises and Django rejects
+# it as DisallowedHost -- the service is running perfectly and still fails to
+# deploy.
+#
+# Only the platform's own hostname is added, never a wildcard, so this does not
+# weaken the check. Set DJANGO_ALLOWED_HOSTS as well to serve a custom domain.
+for _var in ("RENDER_EXTERNAL_HOSTNAME", "FLY_APP_NAME_HOSTNAME", "WEBSITE_HOSTNAME"):
+    _platform_host = os.environ.get(_var, "").strip()
+    if _platform_host and _platform_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_platform_host)
+
 if not DEBUG and not ALLOWED_HOSTS and not _IS_LENIENT:
     raise ImproperlyConfigured(
         "DJANGO_ALLOWED_HOSTS must be set when DJANGO_DEBUG=false."
     )
 
 CSRF_TRUSTED_ORIGINS = _origins("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+# The admin posts back to this service's own domain, so it has to be trusted for
+# CSRF as well. Derived from the same platform hostname resolved above rather
+# than repeated by hand.
+for _host in ALLOWED_HOSTS:
+    if _host not in ("localhost", "127.0.0.1") and not _host.startswith("."):
+        _origin = f"https://{_host}"
+        if _origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_origin)
 
 
 # --------------------------------------------------------------------------- #

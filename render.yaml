@@ -49,13 +49,11 @@ services:
       - key: DJANGO_DEBUG
         value: "false"
 
-      # Render exposes the service's own hostname, which is exactly the format
-      # ALLOWED_HOSTS wants (no scheme).
-      - key: DJANGO_ALLOWED_HOSTS
-        fromService:
-          type: web
-          name: safemeds-api
-          property: host
+      # DJANGO_ALLOWED_HOSTS is deliberately not set here. A service cannot
+      # reference itself through `fromService`, and settings.py already trusts
+      # RENDER_EXTERNAL_HOSTNAME, which Render injects with the real public
+      # hostname including any suffix it added. Set this only to serve an
+      # additional custom domain.
 
       # Both are derived from the frontend's real hostname rather than typed in.
       # `fromService` yields a bare host with no scheme; settings.py reads a

@@ -99,6 +99,38 @@ class HealthProbeThrottlingTests(TestCase):
             self.client.get(reverse("liveness"))
 
 
+class PlatformHostnameTests(SimpleTestCase):
+    """The deployed hostname is not knowable before the service exists.
+
+    Platforms assign it, appending a suffix when the requested name is taken,
+    and a service cannot reference its own address from a config file. So the
+    hostname the platform publishes has to be trusted, or the health probe
+    arrives with a Host header nothing recognises and is rejected as
+    DisallowedHost -- the service runs perfectly and still fails to deploy.
+    """
+
+    @override_settings(ALLOWED_HOSTS=["safemeds-api.onrender.com"])
+    def test_probe_is_accepted_on_the_platform_hostname(self):
+        response = self.client.get(
+            reverse("liveness"), HTTP_HOST="safemeds-api.onrender.com"
+        )
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(ALLOWED_HOSTS=["safemeds-api.onrender.com"])
+    def test_probe_is_accepted_with_an_explicit_port(self):
+        """Render probes `host:10000`; the port must not defeat the match."""
+        response = self.client.get(
+            reverse("liveness"), HTTP_HOST="safemeds-api.onrender.com:10000"
+        )
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(ALLOWED_HOSTS=["safemeds-api.onrender.com"])
+    def test_an_unknown_host_is_still_rejected(self):
+        """Trusting the platform hostname must not become a wildcard."""
+        response = self.client.get(reverse("liveness"), HTTP_HOST="evil.example.com")
+        self.assertEqual(response.status_code, 400)
+
+
 class OriginNormalizationTests(SimpleTestCase):
     """CORS and CSRF need absolute origins; deployments supply bare hostnames.
 
