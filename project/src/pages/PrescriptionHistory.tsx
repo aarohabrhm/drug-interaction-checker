@@ -1,51 +1,79 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileText } from 'lucide-react';
-import { InteractionWarnings } from '../components/InteractionWarnings';
+import { useNavigate } from 'react-router-dom';
+import { Activity } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
-  Patient,
-  Prescription,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { DataTable, type Column } from '../components/common/DataTable';
+import { DrugChip } from '../components/common/DrugChip';
+import { SeverityBadge } from '../components/common/SeverityBadge';
+import { InteractionWarnings } from '../components/InteractionWarnings';
+import { EmptyState, ErrorState, PageHeader } from '../components/common/states';
+import { bySeverityDescending } from '../lib/severity';
+import {
   fetchPatients,
   fetchPrescriptions,
+  type Patient,
+  type Prescription,
 } from '../../utils/api';
 import { useDocumentMeta } from '../lib/useDocumentMeta';
 
-/**
- * Prescription history.
- *
- * Reads back what previously had no reader: prescriptions were never stored at
- * all, and the interaction warnings written alongside them were never surfaced
- * outside the Django admin.
- */
-export default function PrescriptionHistory() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
+const ALL = 'all';
 
+/** One row's screening outcome, as the three states that must stay distinct. */
+function ScreeningResult({ prescription }: { prescription: Prescription }) {
+  if (prescription.unscreened_pair_count > 0) {
+    return (
+      <SeverityBadge
+        severity="unscreened"
+        size="sm"
+        label={`${prescription.unscreened_pair_count} not screened`}
+      />
+    );
+  }
+  if (prescription.warnings.length === 0) {
+    return <SeverityBadge severity="clear" size="sm" label="Clear" />;
+  }
+  const worst = [...prescription.warnings].sort(bySeverityDescending)[0];
+  return <SeverityBadge severity={worst.severity} size="sm" />;
+}
+
+export function PrescriptionHistory() {
+  const navigate = useNavigate();
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientId, setPatientId] = useState<string>(ALL);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Prescription | null>(null);
 
-  const patientFilter = searchParams.get('patient') ?? '';
-
-  useDocumentMeta('SafeMeds | Prescription history');
+  useDocumentMeta('SafeMeds | Prescriptions');
 
   useEffect(() => {
-    const loadPatients = async () => {
-      try {
-        const page = await fetchPatients({ pageSize: 100 });
-        setPatients(page.patients);
-      } catch {
-        // The filter dropdown is optional; the list below still works.
-      }
-    };
-    void loadPatients();
+    fetchPatients({ pageSize: 100 })
+      .then((page) => setPatients(page.patients))
+      // The filter is a convenience; the list below still loads without it.
+      .catch(() => undefined);
   }, []);
 
-  const load = useCallback(async (patientId: string) => {
+  const load = useCallback(async (filter: string) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const page = await fetchPrescriptions({ patientId: patientId || undefined });
+      const page = await fetchPrescriptions({
+        patientId: filter === ALL ? undefined : filter,
+      });
       setPrescriptions(page.prescriptions);
       setError(null);
     } catch (err) {
@@ -56,108 +84,140 @@ export default function PrescriptionHistory() {
   }, []);
 
   useEffect(() => {
-    void load(patientFilter);
-  }, [patientFilter, load]);
+    void load(patientId);
+  }, [patientId, load]);
+
+  const columns: Column<Prescription>[] = [
+    {
+      header: 'Patient',
+      cell: (row) => <span className="font-medium">{row.patient_name}</span>,
+    },
+    {
+      header: 'Diagnosis',
+      cell: (row) => <span className="text-muted-foreground">{row.diagnosis}</span>,
+    },
+    {
+      header: 'Medicines',
+      cell: (row) => (
+        <div className="flex flex-wrap justify-end gap-1 md:justify-start">
+          {row.items.map((item) => (
+            <DrugChip key={item.id ?? item.drug_name} name={item.drug_name} />
+          ))}
+        </div>
+      ),
+    },
+    {
+      header: 'Screening',
+      cell: (row) => <ScreeningResult prescription={row} />,
+    },
+    {
+      header: 'Issued',
+      cell: (row) => (
+        <span className="tabular text-muted-foreground">
+          {new Date(row.created_at).toLocaleDateString()}
+        </span>
+      ),
+      hideOnMobile: true,
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-transparent">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="text-gray-600 hover:text-gray-900"
-              aria-label="Back to dashboard"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <h1 className="text-xl font-bold">Prescription History</h1>
-          </div>
+    <div>
+      <PageHeader
+        title="Prescriptions"
+        description="Everything you have issued, with the warnings raised at the time."
+        actions={<Button onClick={() => navigate('/check')}>Screen a prescription</Button>}
+      />
 
-          <select
-            value={patientFilter}
-            onChange={(e) => {
-              const value = e.target.value;
-              setSearchParams(value ? { patient: value } : {});
-            }}
-            className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm"
-          >
-            <option value="">All patients</option>
+      <div className="mb-4 max-w-xs">
+        <Select value={patientId} onValueChange={setPatientId}>
+          <SelectTrigger aria-label="Filter by patient">
+            <SelectValue placeholder="All patients" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All patients</SelectItem>
             {patients.map((patient) => (
-              <option key={patient.id} value={patient.id}>
+              <SelectItem key={patient.id} value={String(patient.id)}>
                 {patient.name}
-              </option>
+              </SelectItem>
             ))}
-          </select>
-        </div>
-      </header>
+          </SelectContent>
+        </Select>
+      </div>
 
-      <main className="container mx-auto px-4 py-2">
-        {loading && <div className="text-center py-8 text-gray-500">Loading…</div>}
-        {error && <div className="text-center py-8 text-red-600">{error}</div>}
+      {error ? (
+        <ErrorState message={error} onRetry={() => void load(patientId)} />
+      ) : (
+        <DataTable
+          rows={prescriptions}
+          columns={columns}
+          rowKey={(row) => row.id}
+          loading={loading}
+          onRowClick={setSelected}
+          empty={
+            <EmptyState
+              icon={Activity}
+              title={
+                patientId === ALL
+                  ? 'No prescriptions yet'
+                  : 'Nothing issued for this patient'
+              }
+              description="Screen a prescription and it will be recorded here with its warnings."
+              action={<Button onClick={() => navigate('/check')}>Screen a prescription</Button>}
+            />
+          }
+        />
+      )}
 
-        {!loading && !error && prescriptions.length === 0 && (
-          <div className="text-center py-16 text-gray-500">
-            <FileText className="h-10 w-10 mx-auto mb-3 opacity-40" />
-            <p>No prescriptions yet.</p>
-          </div>
-        )}
+      <Sheet open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
+          {selected && (
+            <>
+              <SheetHeader>
+                <SheetTitle>{selected.patient_name}</SheetTitle>
+                <SheetDescription>
+                  {selected.diagnosis} · {new Date(selected.created_at).toLocaleString()}
+                </SheetDescription>
+              </SheetHeader>
 
-        <div className="space-y-4">
-          {!loading &&
-            !error &&
-            prescriptions.map((prescription) => (
-              <article
-                key={prescription.id}
-                className="bg-gray-50 border-2 border-white rounded-2xl shadow-sm p-5"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <h2 className="font-semibold">{prescription.patient_name}</h2>
-                    <p className="text-sm text-gray-500">{prescription.diagnosis}</p>
-                  </div>
-                  <div className="text-right text-xs text-gray-500">
-                    <p>{new Date(prescription.created_at).toLocaleString()}</p>
-                    {prescription.prescribed_by_username && (
-                      <p>by {prescription.prescribed_by_username}</p>
-                    )}
-                  </div>
+              <div className="mt-5 space-y-5">
+                <div>
+                  <h3 className="text-label uppercase tracking-wide text-muted-foreground">
+                    Prescribed
+                  </h3>
+                  <ul className="mt-2 space-y-2">
+                    {selected.items.map((item) => (
+                      <li
+                        key={item.id ?? item.drug_name}
+                        className="rounded-md bg-surface px-3 py-2"
+                      >
+                        <p className="text-sm font-medium">{item.drug_name}</p>
+                        <p className="tabular text-xs text-muted-foreground">
+                          {item.dosage} · {item.frequency} · {item.duration}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
-                <ul className="flex flex-wrap gap-1 mb-3">
-                  {prescription.items.map((item) => (
-                    <li
-                      key={item.id ?? item.drug_name}
-                      className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
-                    >
-                      {item.drug_name}
-                      {item.dosage ? ` · ${item.dosage}` : ''}
-                    </li>
-                  ))}
-                </ul>
-
-                {prescription.warnings.length > 0 ||
-                prescription.unscreened_pair_count > 0 ? (
-                  <>
-                    <p className="text-xs text-gray-500 mb-2">
-                      Flagged at the time of prescribing:
-                    </p>
-                    {/* Same component as the prescribing screen, so a warning
-                        looks identical wherever the doctor meets it. */}
-                    <InteractionWarnings
-                      warnings={prescription.warnings}
-                      unscreenedCount={prescription.unscreened_pair_count}
-                    />
-                  </>
-                ) : (
-                  <p className="text-xs text-gray-500">
-                    No interactions were flagged when this was issued.
-                  </p>
-                )}
-              </article>
-            ))}
-        </div>
-      </main>
+                <div>
+                  <h3 className="mb-2 text-label uppercase tracking-wide text-muted-foreground">
+                    Screening at the time
+                  </h3>
+                  {/* The same renderer as the checker, so a warning cannot look
+                      one way when raised and another way in the record. */}
+                  <InteractionWarnings
+                    warnings={selected.warnings}
+                    unscreenedCount={selected.unscreened_pair_count}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
+
+export default PrescriptionHistory;
