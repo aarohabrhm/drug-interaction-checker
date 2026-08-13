@@ -191,8 +191,8 @@ export function PatientDetail() {
           </h2>
           {medications.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              None recorded. Screening has nothing to compare against until there are
-              some — a prescription for this patient would come back clear by default.
+              None recorded yet. Until you add some, every check for this patient will
+              come back clear simply because there is nothing to compare against.
             </p>
           ) : (
             <>
@@ -202,7 +202,7 @@ export function PatientDetail() {
                 ))}
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
-                Updated automatically when a prescription is issued.
+                Anything you prescribe is added here, so the next check includes it.
               </p>
             </>
           )}

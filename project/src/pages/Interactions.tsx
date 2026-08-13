@@ -103,7 +103,7 @@ export function Interactions() {
     <div>
       <PageHeader
         title="Interaction database"
-        description="The reference table screening compares against. Read-only — it is loaded from a dataset, not edited here."
+        description="Every drug pair SafeMeds knows about, and how serious each one is."
       />
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row">
@@ -157,7 +157,7 @@ export function Interactions() {
                 description={
                   search
                     ? 'Try a different drug name, or clear the grade filter.'
-                    : 'Load a dataset with the import_interactions command.'
+                    : 'No interaction data has been loaded yet.'
                 }
               />
             }

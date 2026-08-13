@@ -142,6 +142,16 @@
   :focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
+
+  /*
+   * Except the command palette's search field. It takes focus the moment the
+   * dialog opens and never gives it up, so the ring is permanently on -- it
+   * marks nothing and just boxes in the input. The dialog itself is the focus
+   * context, and the highlighted result shows where you are within it.
+   */
+  [cmdk-input]:focus-visible {
+    @apply ring-0 ring-offset-0;
+  }
 }
 
 @layer utilities {

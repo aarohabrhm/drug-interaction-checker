@@ -34,7 +34,7 @@ export function AddPrescription() {
     <div>
       <PageHeader
         title="Interaction checker"
-        description="Screen what you intend to prescribe against what the patient already takes. Nothing is saved until you confirm."
+        description="Check a new prescription against what your patient already takes. Nothing is saved until you confirm."
       />
 
       {error && (

@@ -125,7 +125,7 @@ export function PrescriptionHistory() {
     <div>
       <PageHeader
         title="Prescriptions"
-        description="Everything you have issued, with the warnings raised at the time."
+        description="Everything you have prescribed, with the warnings you saw at the time."
         actions={<Button onClick={() => navigate('/check')}>Screen a prescription</Button>}
       />
 

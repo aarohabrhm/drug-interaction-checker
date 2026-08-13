@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, Ban, HelpCircle, Layers, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Logo } from '../components/common/Logo';
 import { useDocumentMeta } from '../lib/useDocumentMeta';
 
 /**
@@ -45,12 +46,7 @@ export default function Landing() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-          <span className="flex items-center gap-2.5">
-            <span className="grid h-8 w-8 place-items-center rounded-md bg-primary text-primary-foreground">
-              <ShieldCheck className="h-[18px] w-[18px]" />
-            </span>
-            <span className="text-[15px] font-semibold tracking-[-0.01em]">SafeMeds</span>
-          </span>
+          <Logo size={32} withName />
           <nav className="flex items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
               <Link to="/login">Sign in</Link>

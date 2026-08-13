@@ -98,8 +98,7 @@ export function InteractionWarnings({
           No known interactions found
         </p>
         <p className="mt-1.5 text-xs text-sev-clear/90">
-          Based on the loaded dataset only. Absence of a warning is not proof of
-          safety.
+          Checked against everything SafeMeds has. That is not proof of safety.
         </p>
       </div>
     );

@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
-import { LogOut, Settings, ShieldCheck } from 'lucide-react';
+import { LogOut, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NAV_ITEMS } from './nav-items';
+import { Logo } from '../common/Logo';
 
 interface SidebarNavProps {
   /** Icon-only rail. Labels are still announced to screen readers. */
@@ -19,12 +20,7 @@ export function SidebarNav({ collapsed = false, onNavigate, onLogout }: SidebarN
           collapsed && 'justify-center px-0'
         )}
       >
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
-          <ShieldCheck className="h-[18px] w-[18px]" />
-        </span>
-        {!collapsed && (
-          <span className="text-[15px] font-semibold tracking-[-0.01em]">SafeMeds</span>
-        )}
+        <Logo size={32} withName={!collapsed} />
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-2" aria-label="Main">

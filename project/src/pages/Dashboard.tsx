@@ -218,8 +218,8 @@ export function Dashboard() {
           </div>
 
           <p className="mt-4 rounded-md bg-surface p-3 text-xs text-muted-foreground">
-            A pair absent from this table has not been checked and found safe — it has
-            not been checked. Coverage is reported per screening, not assumed.
+            A pair missing from here has not been cleared — it has not been checked.
+            Every screening tells you which pairs it could not answer.
           </p>
         </div>
       </div>

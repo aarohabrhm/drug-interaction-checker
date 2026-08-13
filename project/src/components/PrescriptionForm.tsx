@@ -368,9 +368,8 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
         <p className="flex items-start gap-2 rounded-lg bg-surface px-4 py-3 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            Screening supports clinical judgement, it does not replace it. Absence
-            of a warning is not proof of safety — verify against a primary source
-            before prescribing.
+            SafeMeds supports your judgement, it does not replace it. No warning
+            does not mean no risk — check a primary source before you prescribe.
           </span>
         </p>
       </form>
@@ -381,7 +380,7 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
           <EmptyState
             icon={ShieldCheck}
             title="Nothing screened yet"
-            description="Pick a patient and add the medicines you intend to prescribe. Nothing is saved until you confirm."
+            description="Choose a patient and add the medicines you plan to prescribe. Results appear here."
             className="h-full min-h-[280px]"
           />
         )}

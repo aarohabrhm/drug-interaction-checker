@@ -145,7 +145,7 @@ export function Patients() {
     <div>
       <PageHeader
         title="Patients"
-        description="Everyone you have registered. Screening compares against the medications recorded here."
+        description="Everyone in your care. Their medication lists are what new prescriptions get checked against."
         actions={
           <Button onClick={() => setAddOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" />
@@ -203,8 +203,8 @@ export function Patients() {
           <DialogHeader>
             <DialogTitle>Add patient</DialogTitle>
             <DialogDescription>
-              Current medications are what future prescriptions get screened against, so
-              record them as fully as you can.
+              List their current medications as fully as you can — that is what new
+              prescriptions get checked against.
             </DialogDescription>
           </DialogHeader>
 
@@ -282,8 +282,8 @@ export function Patients() {
                 rows={2}
               />
               <p className="text-xs text-muted-foreground">
-                Separate with commas. Brand names are fine — they are resolved to their
-                ingredient before screening.
+                Separate with commas. Brand names work — SafeMeds matches them to the
+                active ingredient.
               </p>
             </div>
 

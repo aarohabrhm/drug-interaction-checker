@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ShieldCheck } from 'lucide-react';
+import { Logo } from '../common/Logo';
 
 interface AuthLayoutProps {
   title: string;
@@ -21,11 +21,8 @@ export function AuthLayout({ title, subtitle, children, footer }: AuthLayoutProp
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="flex flex-col justify-center px-6 py-12 sm:px-12 lg:px-16">
         <div className="mx-auto w-full max-w-sm">
-          <Link to="/" className="mb-10 inline-flex items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-md bg-primary text-primary-foreground">
-              <ShieldCheck className="h-5 w-5" />
-            </span>
-            <span className="text-base font-semibold tracking-[-0.01em]">SafeMeds</span>
+          <Link to="/" className="mb-10 inline-flex">
+            <Logo size={36} withName />
           </Link>
 
           <h1 className="text-display-lg text-foreground">{title}</h1>
