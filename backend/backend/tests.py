@@ -5,12 +5,14 @@ exactly the configuration no one exercises locally and which therefore breaks
 quietly. Each test here corresponds to a defect that shipped once.
 """
 
+import os
 import re
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
-from .settings import build_cache_config
+from .settings import _origins, build_cache_config
 
 
 class HealthProbeRedirectExemptionTests(SimpleTestCase):
@@ -58,6 +60,46 @@ class HealthProbeRedirectExemptionTests(SimpleTestCase):
         """Proves the test above is actually testing something."""
         response = self.client.get(reverse("liveness"))
         self.assertEqual(response.status_code, 301)
+
+
+class OriginNormalizationTests(SimpleTestCase):
+    """CORS and CSRF need absolute origins; deployments supply bare hostnames.
+
+    A blueprint can wire one service's hostname into another automatically, but
+    only as a host with no scheme -- and CORS rejects that outright. Reading a
+    scheme-less entry as https is what lets the deployment configure itself
+    instead of relying on someone pasting URLs in by hand.
+    """
+
+    def test_bare_host_becomes_https(self):
+        with patch.dict(os.environ, {"X_ORIGINS": "safemeds-web.onrender.com"}):
+            self.assertEqual(
+                _origins("X_ORIGINS"), ["https://safemeds-web.onrender.com"]
+            )
+
+    def test_explicit_scheme_is_preserved(self):
+        """Local development must keep http, not be forced to https."""
+        with patch.dict(os.environ, {"X_ORIGINS": "http://localhost:5173"}):
+            self.assertEqual(_origins("X_ORIGINS"), ["http://localhost:5173"])
+
+    def test_trailing_slash_is_stripped(self):
+        """An origin with a path is not an origin, and CORS will not match it."""
+        with patch.dict(os.environ, {"X_ORIGINS": "https://example.com/"}):
+            self.assertEqual(_origins("X_ORIGINS"), ["https://example.com"])
+
+    def test_mixed_list_is_normalized_per_entry(self):
+        with patch.dict(
+            os.environ, {"X_ORIGINS": "example.com, http://localhost:5173"}
+        ):
+            self.assertEqual(
+                _origins("X_ORIGINS"),
+                ["https://example.com", "http://localhost:5173"],
+            )
+
+    def test_unset_returns_the_default(self):
+        os.environ.pop("X_ORIGINS", None)
+        self.assertEqual(_origins("X_ORIGINS", ["http://localhost:5173"]),
+                         ["http://localhost:5173"])
 
 
 class ThrottleCacheBackendTests(SimpleTestCase):

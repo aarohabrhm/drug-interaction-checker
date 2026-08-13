@@ -71,6 +71,24 @@ def _csv(name, default=()):
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _origins(name, default=()):
+    """Read a comma-separated list of absolute origins.
+
+    CORS and CSRF both reject an origin with no scheme, but a deployment
+    usually only has the other service's *hostname* to hand -- that is what
+    hosting platforms expose, and it is what a blueprint can wire up without
+    the operator typing a URL by hand. A bare host is therefore read as https,
+    the only scheme this app is served over in production. Entries that already
+    carry a scheme are passed through untouched, so an explicit
+    `http://localhost:5173` still works for local development.
+    """
+    resolved = []
+    for entry in _csv(name, default):
+        entry = entry.rstrip("/")
+        resolved.append(entry if "://" in entry else f"https://{entry}")
+    return resolved
+
+
 # --------------------------------------------------------------------------- #
 # Core
 # --------------------------------------------------------------------------- #
@@ -97,7 +115,7 @@ if not DEBUG and not ALLOWED_HOSTS and not _IS_LENIENT:
         "DJANGO_ALLOWED_HOSTS must be set when DJANGO_DEBUG=false."
     )
 
-CSRF_TRUSTED_ORIGINS = _csv("DJANGO_CSRF_TRUSTED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = _origins("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 
 # --------------------------------------------------------------------------- #
@@ -336,7 +354,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Explicit allowlist only. A wildcard is rejected outright: this API returns
 # patient data and accepts credentialed requests.
-CORS_ALLOWED_ORIGINS = _csv(
+CORS_ALLOWED_ORIGINS = _origins(
     "CORS_ALLOWED_ORIGINS",
     ["http://localhost:5173", "http://127.0.0.1:5173"] if DEBUG else [],
 )

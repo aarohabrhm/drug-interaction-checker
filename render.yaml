@@ -3,16 +3,14 @@
 # Deploy: push this file, then in the Render dashboard choose
 # "New +" -> "Blueprint" and point it at this repository.
 #
-# Two values cannot be wired automatically, because each service needs the
-# other's public URL and Render only exposes a bare hostname (no scheme) to
-# `fromService`. They are marked `sync: false`, so Render prompts for them on
-# the first deploy. Set them once the URLs are known:
+# The two services need each other's URL, and both are wired automatically from
+# the real hostnames Render assigns -- so nothing has to be typed in, and it
+# stays correct even when Render appends a suffix to a service name that is
+# already taken globally.
 #
-#   safemeds-api  CORS_ALLOWED_ORIGINS   -> https://safemeds-web.onrender.com
-#   safemeds-web  VITE_API_BASE_URL      -> https://safemeds-api.onrender.com
-#
-# Render appends a suffix if a service name is already taken globally, so copy
-# the real URLs from the dashboard rather than assuming the names above.
+# The only prompt is GEMINI_API_KEY, which is optional: leave it blank and the
+# app resolves interactions from the curated dataset and openFDA, logs a single
+# warning, and runs normally.
 
 databases:
   - name: safemeds-db
@@ -55,11 +53,20 @@ services:
           name: safemeds-api
           property: host
 
-      # Absolute origins with scheme; see the note at the top.
+      # Both are derived from the frontend's real hostname rather than typed in.
+      # `fromService` yields a bare host with no scheme; settings.py reads a
+      # scheme-less origin as https, which is the only scheme this is served
+      # over in production.
       - key: CORS_ALLOWED_ORIGINS
-        sync: false
+        fromService:
+          type: web
+          name: safemeds-web
+          property: host
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
-        sync: false
+        fromService:
+          type: web
+          name: safemeds-web
+          property: host
 
       # TLS terminates at Render's proxy, which sets X-Forwarded-Proto.
       - key: DJANGO_SECURE_SSL_REDIRECT
@@ -94,13 +101,22 @@ services:
   - type: web
     name: safemeds-web
     runtime: static
-    buildCommand: cd project && npm ci && npm run build
+    # VITE_API_BASE_URL is inlined into the bundle at BUILD time, so changing it
+    # needs a rebuild rather than a restart, and the build fails outright if it
+    # is missing. Rather than asking for it by hand -- which is easy to skip,
+    # and easy to get wrong when Render appends a suffix to a taken service
+    # name -- it is derived here from the API's real hostname. `fromService`
+    # yields a bare host with no scheme, so the scheme is added here.
+    buildCommand: >-
+      cd project && npm ci &&
+      VITE_API_BASE_URL="https://$SAFEMEDS_API_HOST" npm run build
     staticPublishPath: ./project/dist
     envVars:
-      # Inlined into the bundle at BUILD time, so changing it needs a rebuild,
-      # not just a restart. The build fails outright if it is missing.
-      - key: VITE_API_BASE_URL
-        sync: false
+      - key: SAFEMEDS_API_HOST
+        fromService:
+          type: web
+          name: safemeds-api
+          property: host
     routes:
       # Single-page app: every unmatched path must serve index.html or a deep
       # link like /dashboard 404s on refresh.

@@ -60,11 +60,16 @@ USER safemeds
 
 EXPOSE 8000
 
-# `--fail-with-body` is not enough on its own: curl treats a 3xx as success, so
-# before healthz was exempted from SECURE_SSL_REDIRECT this probe passed on the
-# 301 without ever reaching the app. Both halves of that fix matter.
+# Probe the port gunicorn actually bound, not a hardcoded one. Hosting
+# platforms inject $PORT (Render uses 10000), and gunicorn.conf.py honours it,
+# so a fixed :8000 here checks a port nothing is listening on -- the container
+# then reports unhealthy even though the app is serving correctly.
+#
+# curl treats a 3xx as success, which is why /healthz is also exempt from
+# SECURE_SSL_REDIRECT; without that the probe would pass on the redirect
+# without ever reaching the app. Both halves matter.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://localhost:8000/healthz || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-8000}/healthz" || exit 1
 
 # Migrations run here, then gunicorn is exec'd into PID 1 so it receives
 # SIGTERM directly -- that is what makes `docker stop` drain in-flight requests

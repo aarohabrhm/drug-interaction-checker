@@ -298,14 +298,13 @@ A [Render](https://render.com) blueprint is included. In the dashboard choose
 **New +** → **Blueprint** and point it at the repository; `render.yaml` creates
 the database, the API and the static frontend.
 
-Each service needs the other's URL, which cannot be wired automatically, so
-Render prompts for these on the first deploy:
+The two services need each other's URL, and both are wired from the hostnames
+Render assigns — including any suffix it adds when a service name is already
+taken — so there is nothing to fill in. The secret key is generated and the
+database password is issued by the platform.
 
-| Service | Variable | Value |
-| ------- | -------- | ----- |
-| `safemeds-api` | `CORS_ALLOWED_ORIGINS` | the frontend URL |
-| `safemeds-api` | `DJANGO_CSRF_TRUSTED_ORIGINS` | the frontend URL |
-| `safemeds-web` | `VITE_API_BASE_URL` | the API URL |
+The only prompt is `GEMINI_API_KEY`, which is optional: leave it blank and
+interactions resolve from the curated dataset and openFDA.
 
 Then seed an account from the API service's shell:
 
