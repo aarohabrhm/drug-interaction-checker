@@ -14,6 +14,13 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* `@/` resolves to src/. shadcn generates imports in this form, and it
+       keeps deep relative paths out of the component tree. */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,

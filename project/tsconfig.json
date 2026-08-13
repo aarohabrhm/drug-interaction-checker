@@ -5,6 +5,13 @@
     { "path": "./tsconfig.node.json" }
   ],
   "compilerOptions": {
+    // Duplicated from tsconfig.app.json because tooling reads the root config
+    // rather than the referenced project -- the shadcn CLI resolves its output
+    // paths from here, and writes to a literal "@" folder without it.
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     // Ensure TypeScript can resolve modules correctly
     "moduleResolution": "node",
     // Enable strict type checking for better error detection

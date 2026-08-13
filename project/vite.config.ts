@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 
@@ -20,6 +21,14 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     plugins: [react()],
+    // Must mirror the `paths` entry in tsconfig.app.json -- TypeScript resolves
+    // the alias for type-checking, Vite for the actual bundle, and they are
+    // configured separately.
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
+    },
     test: {
       environment: 'jsdom',
       globals: true,

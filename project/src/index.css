@@ -1,3 +1,175 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Design tokens.
+ *
+ * Every colour in the app derives from one of these. Components reference them
+ * through Tailwind utilities (`bg-surface`, `text-muted-foreground`) rather than
+ * raw hex, so a palette change happens in one place.
+ *
+ * Values are HSL triples without the wrapper so Tailwind can apply opacity
+ * modifiers: `bg-primary/10` only works if the variable is `221 83% 53%`, not
+ * `hsl(221 83% 53%)`.
+ */
+
+@layer base {
+  :root {
+    --background: 0 0% 100%; /* #FFFFFF */
+    --foreground: 222 47% 11%; /* #0F172A */
+
+    /* Page ground behind cards, and table header rows. */
+    --surface: 205 50% 97%; /* #F6F9FC */
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 221 83% 53%; /* #2563EB */
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 224 76% 48%; /* #1D4ED8 */
+    /* Selected rows, active nav pill, chip backgrounds. */
+    --primary-subtle: 214 100% 97%; /* #EFF6FF */
+
+    --secondary: 205 50% 97%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 205 50% 97%;
+    --muted-foreground: 215 16% 47%; /* #64748B */
+
+    --accent: 199 89% 48%; /* #0EA5E9 */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 40% 93%; /* #E6EDF5 */
+    --input: 210 40% 93%;
+    --ring: 221 83% 53%;
+
+    --radius: 0.75rem;
+
+    /*
+     * Clinical severity.
+     *
+     * Tinted background, saturated text, saturated left border -- never a
+     * full-saturation fill, which would shout over the blue brand. Severity is
+     * never encoded by colour alone: every use pairs these with a text label
+     * and an icon.
+     */
+    --sev-contraindicated: 0 74% 42%;
+    --sev-contraindicated-bg: 0 86% 97%;
+    --sev-contraindicated-border: 0 72% 51%;
+
+    --sev-major: 21 90% 40%;
+    --sev-major-bg: 33 100% 96%;
+    --sev-major-border: 21 90% 48%;
+
+    --sev-moderate: 45 96% 33%;
+    --sev-moderate-bg: 55 92% 95%;
+    --sev-moderate-border: 45 93% 39%;
+
+    --sev-minor: 201 96% 32%;
+    --sev-minor-bg: 204 100% 97%;
+    --sev-minor-border: 199 89% 48%;
+
+    /* Checked and found nothing. Reserved -- nothing else may use green. */
+    --sev-clear: 142 72% 29%;
+    --sev-clear-bg: 138 76% 97%;
+    --sev-clear-border: 142 71% 45%;
+
+    /*
+     * Ungraded, and "could not check".
+     *
+     * The brief's palette has no slot for these; this app needs one, because
+     * the bulk dataset is ungraded and so `unknown` is the most common
+     * non-empty result. Deliberately not green and not a calm neutral grey --
+     * both read as "probably fine", which is the one thing it does not mean.
+     */
+    --sev-unknown: 215 25% 35%;
+    --sev-unknown-bg: 210 40% 96%;
+    --sev-unknown-border: 215 20% 65%;
+  }
+
+  /*
+   * Dark mode is wired so the app is not broken in it, but light is what ships
+   * and what is polished.
+   */
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 210 40% 96%;
+    --surface: 222 40% 11%;
+    --card: 222 44% 10%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 44% 10%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --primary-hover: 217 91% 68%;
+    --primary-subtle: 222 47% 16%;
+    --secondary: 222 40% 14%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 222 40% 14%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 199 89% 55%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 33% 20%;
+    --input: 222 33% 20%;
+    --ring: 217 91% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-surface text-foreground antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    font-variation-settings: 'opsz' 32;
+  }
+
+  /* Numbers line up in columns wherever they are compared. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Every interactive element shows where focus is. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  /*
+   * The unscreened state on the coverage matrix.
+   *
+   * Hatching rather than an empty cell: blank reads as "fine", and the whole
+   * point of showing coverage is that "we could not check this" is a different
+   * answer from "we checked and found nothing".
+   */
+  .hatched {
+    background-image: repeating-linear-gradient(
+      45deg,
+      hsl(var(--sev-unknown-border) / 0.25) 0,
+      hsl(var(--sev-unknown-border) / 0.25) 1px,
+      transparent 1px,
+      transparent 6px
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
