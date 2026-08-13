@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +14,9 @@ vi.mock('../../utils/api', async (importOriginal) => {
     ...actual,
     createPrescription: vi.fn(),
     checkPrescriptionInteractions: vi.fn(),
+    // The combobox queries this as the prescriber types. Stubbed so the tests
+    // exercise the form rather than the network.
+    searchDrugs: vi.fn().mockResolvedValue([]),
   };
 });
 
@@ -71,9 +74,15 @@ function renderForm() {
   );
 }
 
+async function selectPatient(user: ReturnType<typeof userEvent.setup>) {
+  // Radix Select renders a button, not a native <select>.
+  await user.click(screen.getByRole('combobox', { name: /patient/i }));
+  await user.click(await screen.findByRole('option', { name: 'Margaret Hale' }));
+}
+
 async function fillValidPrescription(user: ReturnType<typeof userEvent.setup>) {
-  await user.selectOptions(screen.getByRole('combobox'), '1');
-  await user.type(screen.getByPlaceholderText(/enter diagnosis/i), 'Chest infection');
+  await selectPatient(user);
+  await user.type(screen.getByLabelText(/diagnosis/i), 'Chest infection');
   await user.type(screen.getByPlaceholderText(/medicine name/i), 'clarithromycin');
   await user.type(screen.getByPlaceholderText(/dosage/i), '500mg');
   await user.type(screen.getByPlaceholderText(/frequency/i), 'BD');
@@ -154,8 +163,13 @@ describe('PrescriptionForm', () => {
     await fillValidPrescription(user);
     await user.click(checkButton());
 
-    expect(await screen.findByText('Contraindicated')).toBeInTheDocument();
-    expect(screen.getByText('Curated dataset')).toBeInTheDocument();
+    // Anchored on the warning's own text: the coverage matrix legend also names
+    // every grade, and the compose column has its own list of medications.
+    const card = (await screen.findByText('Rhabdomyolysis risk.')).closest('li');
+    expect(card).not.toBeNull();
+    const warning = within(card as HTMLElement);
+    expect(warning.getByText('Contraindicated')).toBeInTheDocument();
+    expect(warning.getByText('Curated dataset')).toBeInTheDocument();
   });
 
   it('only offers confirmation after a completed screening', async () => {
@@ -235,7 +249,7 @@ describe('PrescriptionForm', () => {
     await user.click(checkButton());
     await waitFor(() => expect(confirmButton()).toBeInTheDocument());
 
-    await user.type(screen.getByPlaceholderText(/enter diagnosis/i), ' revised');
+    await user.type(screen.getByLabelText(/diagnosis/i), ' revised');
 
     expect(confirmButton()).not.toBeInTheDocument();
   });
