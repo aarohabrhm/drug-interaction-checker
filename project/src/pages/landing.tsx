@@ -4,13 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Logo } from '../components/common/Logo';
 import { useDocumentMeta } from '../lib/useDocumentMeta';
 
-/**
- * The hero is a screening, not a claim about screenings.
- *
- * Real pairs with real outcomes -- a contraindication, an ungraded finding and
- * a clear result -- which says what the product does in less space than a
- * paragraph about it would take.
- */
+
 const SCREENING = [
   {
     a: 'clarithromycin',
