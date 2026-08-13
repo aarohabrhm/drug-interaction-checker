@@ -1,133 +1,115 @@
-import { useState } from "react";
-import { ApiError, signupDoctor } from "../../utils/api";
-import { useNavigate } from "react-router-dom";
-import { useDocumentMeta } from "../lib/useDocumentMeta";
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { AuthLayout } from '../components/layout/AuthLayout';
+import { ApiError, signupDoctor } from '../../utils/api';
+import { useDocumentMeta } from '../lib/useDocumentMeta';
 
 export default function Signup() {
-    const [username, setUsername] = useState("");
-    const [password, setPassword] = useState("");
-    const [specialty, setSpecialty] = useState("");
-    const [message, setMessage] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-    const navigate = useNavigate();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [specialty, setSpecialty] = useState('');
+  const [message, setMessage] = useState('');
+  const [succeeded, setSucceeded] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
 
-    useDocumentMeta("SafeMeds | Create account");
+  useDocumentMeta('SafeMeds | Create account');
 
-    const handleSignup = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSubmitting(true);
-        setMessage("");
-        try {
-            await signupDoctor(username, password, specialty);
-            setMessage("Signup successful! Redirecting to sign in…");
-            setTimeout(() => navigate("/login", { replace: true }), 1200);
-        } catch (error) {
-            // The API rejects weak passwords via Django's validators; show the
-            // specific reasons rather than a generic failure.
-            if (error instanceof ApiError && error.fields) {
-                setMessage(Object.values(error.fields).flat().join(" "));
-            } else {
-                setMessage(error instanceof Error ? error.message : "Signup failed.");
-            }
-        } finally {
-            setSubmitting(false);
-        }
-    };
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setMessage('');
+    try {
+      await signupDoctor(username, password, specialty);
+      setSucceeded(true);
+      setMessage('Account created. Taking you to sign in…');
+      setTimeout(() => navigate('/login', { replace: true }), 1200);
+    } catch (error) {
+      setSucceeded(false);
+      // The API rejects weak passwords via Django's validators; show the
+      // specific reasons rather than a generic failure.
+      if (error instanceof ApiError && error.fields) {
+        setMessage(Object.values(error.fields).flat().join(' '));
+      } else {
+        setMessage(error instanceof Error ? error.message : 'Signup failed.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-    return (
-        <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-         <div className="bg-gray-50 rounded-3xl shadow-xl p-8 w-full max-w-md border-2 border-white">
-          {/* Header */}
-          <div className="text-center mb-8 flex flex-col items-center">
-            <img 
-              src="/logo.png" 
-              alt="SafeMeds Logo"
-              className="h-12 w-12 mb-4"
-            />
-            <h2 className="text-3xl font-bold text-gray-800">SafeMeds</h2>
-            <p className="text-gray-600 mt-2">Create your doctor account</p>
-          </div>
-  
-          {/* Form */}
-          <form className="space-y-6" onSubmit={handleSignup}>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Username
-              </label>
-              <input
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
-                type="text"
-                name="username"
-                autoComplete="username"
-                placeholder="Enter your username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-  
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <input
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
-                type="password"
-                name="password"
-                autoComplete="new-password"
-                placeholder="Create a password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-  
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Specialty
-              </label>
-              <input
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
-                type="text"
-                placeholder="Enter your medical specialty"
-                value={specialty}
-                onChange={(e) => setSpecialty(e.target.value)}
-              />
-            </div>
-  
-            {/* Message */}
-            {message && (
-              <div className={`text-sm text-center p-2 rounded-lg ${
-                message.includes('successful') 
-                  ? 'text-green-500 bg-green-50' 
-                  : 'text-red-500 bg-red-50'
-              }`}>
-                {message}
-              </div>
-            )}
-  
-            {/* Signup Button */}
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full bg-blue-600 disabled:bg-gray-400 text-white py-3 rounded-lg hover:bg-blue-700 transition duration-200 font-medium"
-            >
-              {submitting ? "Creating account…" : "Sign Up"}
-            </button>
-          </form>
-  
-          {/* Login Link */}
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              Already have an account?{' '}
-              <a
-                onClick={() => navigate("/")}
-                className="text-blue-600 text-sm hover:underline cursor-pointer"
-                >
-                Sign in
-              </a>
-
-            </p>
-          </div>
+  return (
+    <AuthLayout
+      title="Create account"
+      subtitle="For prescribers screening their own patients."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link to="/login" className="font-medium text-primary hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <form className="space-y-4" onSubmit={handleSignup}>
+        <div className="space-y-2">
+          <Label htmlFor="username">Username</Label>
+          <Input
+            id="username"
+            name="username"
+            autoComplete="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Choose a username"
+          />
         </div>
-      </div>
-    );
+
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Create a password"
+          />
+          <p className="text-xs text-muted-foreground">
+            At least 10 characters, and not a commonly used password.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="specialty">Specialty</Label>
+          <Input
+            id="specialty"
+            value={specialty}
+            onChange={(event) => setSpecialty(event.target.value)}
+            placeholder="General practice"
+          />
+        </div>
+
+        {message && (
+          <p
+            role="alert"
+            className={
+              succeeded
+                ? 'rounded-md border-l-4 border-sev-clear-border bg-sev-clear-bg px-3 py-2 text-sm text-sev-clear'
+                : 'rounded-md border-l-4 border-sev-contraindicated-border bg-sev-contraindicated-bg px-3 py-2 text-sm text-sev-contraindicated'
+            }
+          >
+            {message}
+          </p>
+        )}
+
+        <Button type="submit" disabled={submitting} className="w-full">
+          {submitting ? 'Creating account…' : 'Create account'}
+        </Button>
+      </form>
+    </AuthLayout>
+  );
 }
