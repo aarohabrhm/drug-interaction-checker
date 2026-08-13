@@ -643,6 +643,16 @@ def prescriptions(request):
     with transaction.atomic():
         prescription = serializer.save(prescribed_by=request.user)
 
+        # What was prescribed is now something the patient takes, so it has to
+        # join the list future checks screen against. `current_meds` above was
+        # captured before this point, so this prescription is still screened
+        # against the list as it stood -- a drug does not interact with itself.
+        newly_recorded = patient.add_medications(
+            item["drug_name"] for item in serializer.validated_data["items"]
+        )
+        if newly_recorded:
+            patient.save(update_fields=["current_medications"])
+
     interactions, unscreened = _check_pairs(
         patient, new_meds, current_meds, request.user, prescription=prescription
     )
@@ -661,6 +671,18 @@ def prescriptions(request):
         len(interactions),
         len(unscreened),
     )
+
+    if len(patient.medication_list()) > settings.MAX_CURRENT_MEDICATIONS:
+        # Screening slices the list to this cap, so past it some pairs stop
+        # being looked at without appearing in `unscreened_pairs`. Reporting
+        # those properly is a larger change; until then it is at least said.
+        logger.warning(
+            "Patient %s now lists %d medications, above the %d screened per "
+            "check -- later pairs are not being compared.",
+            patient.id,
+            len(patient.medication_list()),
+            settings.MAX_CURRENT_MEDICATIONS,
+        )
 
     # Re-serialize so the response carries the warnings just written.
     prescription.refresh_from_db()

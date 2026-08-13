@@ -101,6 +101,41 @@ class PatientList(models.Model):
                 seen.append(name)
         return seen
 
+    def add_medications(self, names):
+        """Record newly prescribed drugs as medications this patient takes.
+
+        Returns the names actually added, so the caller can log what changed.
+        Does not save -- the caller decides which transaction this belongs to.
+
+        Without this the medication list stays as it was when the patient was
+        registered, and every later screening compares against a stale picture:
+        a drug prescribed today is invisible to tomorrow's check, which is a
+        false negative produced by bookkeeping rather than by the data.
+
+        Names are stored as the prescriber typed them, matching how the field
+        already reads, but compared in normalized form so "Aspirin" does not
+        land beside an existing "aspirin".
+        """
+        existing = set(self.medication_list())
+        current = (self.current_medications or "").strip().strip(",")
+
+        added = []
+        for raw in names:
+            display = (raw or "").strip()
+            key = normalize_drug_name(display)
+            # `existing` is updated as we go, so a name repeated within one
+            # prescription is added once.
+            if not key or key in existing:
+                continue
+            existing.add(key)
+            added.append(display)
+
+        if added:
+            self.current_medications = ", ".join(
+                ([current] if current else []) + added
+            )
+        return added
+
 
 class DrugInteraction(models.Model):
     """Curated interaction dataset, loaded from CSV via `import_interactions`.

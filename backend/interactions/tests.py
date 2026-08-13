@@ -1096,3 +1096,129 @@ class ImportSeverityCollisionTests(APITestCase):
         resolved, _ = _resolve_known_pairs({("clarithromycin", "simvastatin")})
         finding = resolved[("clarithromycin", "simvastatin")]
         self.assertEqual(finding.severity, Severity.CONTRAINDICATED)
+
+
+class MedicationListUpdateTests(APITestCase):
+    """What is prescribed has to join what future checks screen against.
+
+    The medication list used to be written once, when the patient was
+    registered, and never again. Every later screening therefore compared
+    against a stale picture: a drug prescribed today was invisible to
+    tomorrow's check. That is a false negative produced by bookkeeping rather
+    than by the interaction data, which makes it the hardest kind to notice.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="drmeds", password="correct-horse-battery"
+        )
+        self.patient = PatientList.objects.create(
+            doctor=self.user,
+            name="Meds Patient",
+            age=61,
+            medical_condition="AFib",
+            phone_number="5550000123",
+            email="meds@example.com",
+            current_medications="warfarin",
+        )
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Token {Token.objects.create(user=self.user).key}"
+        )
+        self.url = reverse("prescriptions")
+
+    def _prescribe(self, *drug_names, diagnosis="Test"):
+        return self.client.post(
+            self.url,
+            {
+                "patient": self.patient.id,
+                "diagnosis": diagnosis,
+                "items": [
+                    {
+                        "drug_name": name,
+                        "dosage": "1",
+                        "frequency": "OD",
+                        "duration": "7d",
+                    }
+                    for name in drug_names
+                ],
+            },
+            format="json",
+        )
+
+    def _medications(self):
+        self.patient.refresh_from_db()
+        return self.patient.medication_list()
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_prescribed_drug_is_added_to_the_medication_list(self, _lookup):
+        self.assertEqual(self._prescribe("clarithromycin").status_code, 201)
+        self.assertIn("clarithromycin", self._medications())
+        # The pre-existing entry is kept, not replaced.
+        self.assertIn("warfarin", self._medications())
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_existing_medication_is_not_duplicated(self, _lookup):
+        """Case differs; it is the same drug and must not be listed twice."""
+        self.assertEqual(self._prescribe("Warfarin").status_code, 201)
+        self.assertEqual(self._medications().count("warfarin"), 1)
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_a_drug_repeated_within_one_prescription_is_added_once(self, _lookup):
+        self.assertEqual(self._prescribe("aspirin", "Aspirin").status_code, 201)
+        self.assertEqual(self._medications().count("aspirin"), 1)
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_a_later_prescription_is_screened_against_an_earlier_one(self, _lookup):
+        """The regression this change exists to close.
+
+        Prescribing A then B must find an A+B interaction. Before, B was only
+        ever compared against the medications recorded at registration, so the
+        pair was never looked at and the check came back clean.
+        """
+        DrugInteraction.objects.create(
+            drug_1="clarithromycin",
+            drug_2="simvastatin",
+            interaction="Rhabdomyolysis risk.",
+            severity=Severity.CONTRAINDICATED,
+        )
+
+        self.assertEqual(self._prescribe("clarithromycin").status_code, 201)
+        response = self._prescribe("simvastatin")
+
+        self.assertEqual(response.status_code, 201)
+        warnings = response.json()["warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]["severity"], Severity.CONTRAINDICATED)
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_a_drug_is_not_screened_against_itself(self, _lookup):
+        """The list is updated after screening, not before.
+
+        If the order were reversed the new drug would appear in its own
+        "current medications" and be paired with itself.
+        """
+        DrugInteraction.objects.create(
+            drug_1="aspirin",
+            drug_2="aspirin",
+            interaction="Should never be reported.",
+            severity=Severity.MAJOR,
+        )
+
+        response = self._prescribe("aspirin")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["warnings"], [])
+
+    @patch("interactions.views.lookup_interaction_externally", return_value=None)
+    def test_the_name_is_stored_as_the_prescriber_typed_it(self, _lookup):
+        self._prescribe("Coumadin 5mg")
+        self.patient.refresh_from_db()
+        self.assertIn("Coumadin 5mg", self.patient.current_medications)
+
+    def test_add_medications_reports_what_it_added_and_does_not_save(self):
+        added = self.patient.add_medications(["aspirin", "warfarin", "  ", "aspirin"])
+        self.assertEqual(added, ["aspirin"])
+        # Unsaved: the caller owns the transaction.
+        self.assertEqual(
+            PatientList.objects.get(pk=self.patient.pk).medication_list(), ["warfarin"]
+        )

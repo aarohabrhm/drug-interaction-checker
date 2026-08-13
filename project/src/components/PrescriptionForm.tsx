@@ -5,12 +5,13 @@ import { Button } from './Button';
 import { Input } from './Input';
 import { InteractionWarnings } from './InteractionWarnings';
 import type {
-  InteractionWarning,
   Patient,
   PrescribedMedication,
   Prescription,
+  ScreeningWarning,
+  UnscreenedPair,
 } from "../../utils/api";
-import { createPrescription } from "../../utils/api";
+import { checkPrescriptionInteractions, createPrescription } from "../../utils/api";
 
 interface PrescriptionFormProps {
   patients: Patient[];
@@ -30,13 +31,32 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
   });
   
 
-  const navigate = useNavigate(); 
-  const [formSubmitted, setFormSubmitted] = useState(false);
+  const navigate = useNavigate();
+
+  /** `editing` -> screen it -> `checked` -> commit it -> `saved`.
+   *
+   *  The point of the split: warnings used to appear only after the
+   *  prescription had already been written, which is too late to act on. */
+  const [phase, setPhase] = useState<'editing' | 'checked' | 'saved'>('editing');
   const [loading, setLoading] = useState(false);
-  const [interaction, setInteraction] = useState<InteractionWarning[]>([]);
-  const [showProceedButton, setShowProceedButton] = useState(false);
+  const [interaction, setInteraction] = useState<ScreeningWarning[]>([]);
+  const [unscreenedPairs, setUnscreenedPairs] = useState<UnscreenedPair[]>([]);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [savedPrescription, setSavedPrescription] = useState<Prescription | null>(null);
+
+  /**
+   * Discard a completed screening because what it screened has changed.
+   *
+   * Without this a prescriber could check drug A, swap it for drug B, and
+   * confirm against results that never covered B -- a false all-clear invented
+   * by the form rather than by the interaction data. Every input calls this.
+   */
+  const invalidateCheck = () => {
+    setPhase((current) => (current === 'checked' ? 'editing' : current));
+    setInteraction([]);
+    setUnscreenedPairs([]);
+    setCheckError(null);
+  };
 
   const generatePDF = async () => {
     // jsPDF + autotable are ~400kB. Loading them on demand keeps them out of
@@ -96,23 +116,60 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
     if (newMed.name && newMed.dosage && newMed.frequency && newMed.duration) {
       setMedications([...medications, { ...newMed }]);
       setNewMed({ name: '', dosage: '', frequency: '', duration: '' });
+      invalidateCheck();
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const removeMedication = (index: number) => {
+    setMedications(medications.filter((_, i) => i !== index));
+    invalidateCheck();
+  };
+
+  const readyToCheck =
+    Boolean(selectedPatient) && Boolean(diagnosis) && medications.length > 0;
+
+  /** Screen the medications without writing anything. */
+  const handleCheck = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatient || !diagnosis || medications.length === 0) return;
+    if (!readyToCheck) return;
 
     setLoading(true);
-    setFormSubmitted(true);
     setInteraction([]);
+    setUnscreenedPairs([]);
     setCheckError(null);
-    setShowProceedButton(false);
 
     try {
-      // One call: the server saves the prescription and screens it in the same
-      // transaction, then returns the warnings it raised. Previously the
-      // prescription was never stored at all and the check ran twice.
+      const result = await checkPrescriptionInteractions(
+        Number(selectedPatient),
+        medications.map((med) => med.name)
+      );
+      setInteraction(result.interactions);
+      setUnscreenedPairs(result.unscreened_pairs);
+      setPhase('checked');
+    } catch (error) {
+      // Stay in `editing`: a failed screen is not a screen, and confirming must
+      // not be offered on the strength of one.
+      setCheckError(
+        error instanceof Error
+          ? `${error.message} Nothing has been screened or saved.`
+          : "Failed to check interactions. Nothing has been screened or saved."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Commit the prescription the prescriber has now seen the warnings for. */
+  const handleConfirm = async () => {
+    if (phase !== 'checked') return;
+
+    setLoading(true);
+    setCheckError(null);
+
+    try {
+      // The server screens again as it saves, so the stored record carries the
+      // warnings raised at the moment of prescribing rather than whatever the
+      // browser happened to be showing.
       const saved = await createPrescription({
         patientId: Number(selectedPatient),
         diagnosis,
@@ -120,14 +177,13 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
       });
       setSavedPrescription(saved);
       setInteraction(saved.warnings);
+      setUnscreenedPairs([]);
+      setPhase('saved');
       onSaved?.(saved);
-      // Only offer the PDF once the prescription actually saved -- otherwise a
-      // doctor could print a prescription that was never recorded or screened.
-      setShowProceedButton(true);
     } catch (error) {
       setCheckError(
         error instanceof Error
-          ? `${error.message} The prescription was not saved or screened.`
+          ? `${error.message} The prescription was not saved.`
           : "Failed to save the prescription."
       );
     } finally {
@@ -141,7 +197,7 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
     <div className="flex gap-4  w-full">
       {/* Left Side: Prescription Form */}
  
-      <div className={`transition-all min-w-[500px] duration-500 ${formSubmitted ? "w-1/3" : "w-full"}`}>
+      <div className={`transition-all min-w-[500px] duration-500 ${phase !== "editing" || loading || checkError ? "w-1/3" : "w-full"}`}>
         <div className="bg-gray-50 rounded-lg shadow-sm max-w-2xl mx-auto p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold">Create Prescription</h2>
@@ -150,7 +206,7 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleCheck} className="space-y-6">
             {/* Patient Selection */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -158,7 +214,7 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
               </label>
               <select
                 value={selectedPatient}
-                onChange={(e) => setSelectedPatient(e.target.value)}
+                onChange={(e) => { setSelectedPatient(e.target.value); invalidateCheck(); }}
                 className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 required
               >
@@ -181,7 +237,7 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
               </label>
               <Input
                 value={diagnosis}
-                onChange={(e) => setDiagnosis(e.target.value)}
+                onChange={(e) => { setDiagnosis(e.target.value); invalidateCheck(); }}
                 required
                 placeholder="Enter diagnosis"
                 className="w-full rounded-lg border border-gray-300 px-4 py-2"
@@ -213,7 +269,7 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
                     value={newMed.duration}
                     onChange={(e) => setNewMed({ ...newMed, duration: e.target.value })}
                   />
-                  <Button type="button" onClick={handleAddMedication} className="bg-blue-500 text-white p-2 rounded-lg">
+                  <Button type="button" aria-label="Add medication" onClick={handleAddMedication} className="bg-blue-500 text-white p-2 rounded-lg">
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
@@ -231,7 +287,8 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setMedications(medications.filter((_, i) => i !== index))}
+                        aria-label={`Remove ${med.name}`}
+                        onClick={() => removeMedication(index)}
                         className="text-gray-500 hover:text-red-500 ml-2"
                       >
                         <X className="w-4 h-4" />
@@ -247,18 +304,41 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
               <Button onClick={() => navigate('/dashboard')} type="button" className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg">
                 Cancel
               </Button>
-              <Button 
-                type="submit" 
-                disabled={!selectedPatient || !diagnosis || medications.length === 0}
-                className={`px-4 py-2 text-white rounded-lg ${
-                  !selectedPatient || !diagnosis || medications.length === 0
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-blue-500 hover:bg-blue-600"
-                }`}
-              >
-                Generate Prescription
-              </Button>
-              {showProceedButton && (
+              {phase !== 'saved' && (
+                <Button
+                  type="submit"
+                  disabled={!readyToCheck || loading}
+                  className={`px-4 py-2 text-white rounded-lg ${
+                    !readyToCheck || loading
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-blue-500 hover:bg-blue-600"
+                  }`}
+                >
+                  {loading && phase === 'editing' ? "Checking…" : "Check Interactions"}
+                </Button>
+              )}
+
+              {/* Only reachable once a screening has completed for exactly what
+                  is in the form now -- editing anything sends it back. */}
+              {phase === 'checked' && (
+                <Button
+                  type="button"
+                  disabled={loading}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleConfirm();
+                  }}
+                  className={`px-4 py-2 text-white rounded-lg ${
+                    loading ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+                  }`}
+                >
+                  {loading ? "Saving…" : "Confirm & Prescribe"}
+                </Button>
+              )}
+
+              {/* The PDF stays behind the save, so nothing can be printed that
+                  was never recorded or screened. */}
+              {phase === 'saved' && (
                 <Button
                   type="button"
                   onClick={(e) => {
@@ -267,7 +347,7 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
                   }}
                   className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
                 >
-                  Proceed
+                  Download PDF
                 </Button>
               )}
             </div>
@@ -276,9 +356,17 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
       </div>
 
       {/* Right Side: Interaction Table */}
-      {formSubmitted && (
+      {(phase !== 'editing' || loading || checkError) && (
         <div className="w-full min-w-[500px] bg-white p-4 rounded shadow">
           <h2 className="text-xl max-w-full font-semibold mb-4">Drug Interactions</h2>
+
+          {phase === 'checked' && (
+            <p className="mb-4 text-sm text-blue-900 bg-blue-50 border border-blue-200 p-3 rounded">
+              Screened only — <strong>nothing has been saved yet.</strong> Review
+              the result below, then confirm to issue the prescription.
+            </p>
+          )}
+
           {savedPrescription && (
             <p className="mb-4 text-sm text-green-700 bg-green-50 p-3 rounded">
               Prescription #{savedPrescription.id} saved for{' '}
@@ -286,25 +374,31 @@ export function PrescriptionForm({ patients, onSaved }: PrescriptionFormProps) {
               {new Date(savedPrescription.created_at).toLocaleString()}.
             </p>
           )}
+
           {loading ? (
-            <p className="text-gray-500">Saving and checking interactions...</p>
+            <p className="text-gray-500">
+              {phase === 'checked' ? "Saving prescription…" : "Checking interactions…"}
+            </p>
           ) : (
             // `unavailable` keeps a failed check visually distinct from a clean
-            // one -- an empty list after an error is not an all-clear. The
-            // unscreened count covers the partial case: saved fine, but some
-            // pairs could not be looked up.
+            // one -- an empty list after an error is not an all-clear. Before
+            // saving, the pairs themselves are known; afterwards only the count
+            // is stored on the prescription.
             <InteractionWarnings
               warnings={interaction}
-              unavailable={Boolean(checkError)}
-              unscreenedCount={savedPrescription?.unscreened_pair_count ?? 0}
+              unavailable={Boolean(checkError) && phase === 'editing'}
+              unscreenedPairs={phase === 'checked' ? unscreenedPairs : undefined}
+              unscreenedCount={
+                phase === 'saved' ? savedPrescription?.unscreened_pair_count ?? 0 : undefined
+              }
             />
           )}
+
           {checkError && (
             <p className="text-sm text-red-700 bg-red-50 p-3 rounded mt-3">{checkError}</p>
           )}
-
-                </div>
-              )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,11 @@
 import { AlertTriangle, ShieldCheck } from 'lucide-react';
-import type { InteractionWarning } from '../../utils/api';
+import type { ScreeningWarning } from '../../utils/api';
 import { bySeverityDescending, severityStyle, sourceStyle } from '../lib/severity';
 
 interface InteractionWarningsProps {
-  warnings: InteractionWarning[];
+  /** Warnings from before prescribing or from a stored prescription -- both
+   *  arrive in the same shape, so neither can be presented differently. */
+  warnings: ScreeningWarning[];
   /** True when the check could not be run at all. An empty list then means
    *  "unknown", not "clear", and must not be shown as an all-clear. */
   unavailable?: boolean;

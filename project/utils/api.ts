@@ -112,10 +112,18 @@ export interface PrescribedMedication {
   duration: string;
 }
 
+/** One interaction as returned by the pre-prescribing check.
+ *
+ *  Field names differ from the stored form below (`interaction` rather than
+ *  `interaction_description`), so this shape is mapped to that one before it
+ *  reaches the UI -- see `toWarning`. */
 export interface DrugInteraction {
   drug_1: string;
   drug_2: string;
   interaction: string;
+  severity: Severity;
+  source: InteractionSourceId;
+  management: string;
 }
 
 /** Clinical significance, most urgent first. `unknown` means the source gave no
@@ -146,6 +154,32 @@ export interface InteractionWarning {
   source_label: string;
   management_recommendation: string;
   checked_at: string;
+}
+
+/** What the warnings UI renders.
+ *
+ *  A warning found before prescribing has no database id and no server-rendered
+ *  labels, but is otherwise the same fact as one stored afterwards. Both are
+ *  mapped to this so there is a single rendering path: if the two travelled
+ *  separate paths, the same interaction could look different either side of the
+ *  decision to prescribe, which is exactly the confusion this app exists to
+ *  avoid. Labels are derived from `severity`/`source` when absent. */
+export type ScreeningWarning = Omit<
+  InteractionWarning,
+  'id' | 'severity_label' | 'source_label' | 'checked_at'
+> &
+  Partial<Pick<InteractionWarning, 'id' | 'severity_label' | 'source_label' | 'checked_at'>>;
+
+/** Map a pre-prescribing check result onto the stored warning shape. */
+export function toWarning(interaction: DrugInteraction): ScreeningWarning {
+  return {
+    drug_1: interaction.drug_1,
+    drug_2: interaction.drug_2,
+    interaction_description: interaction.interaction,
+    severity: interaction.severity ?? 'unknown',
+    source: interaction.source ?? 'dataset',
+    management_recommendation: interaction.management ?? '',
+  };
 }
 
 /** Wire shape of a medication line. The form uses `name`; the API uses
@@ -190,7 +224,8 @@ export function toPrescribedMedication(item: PrescriptionItem): PrescribedMedica
 }
 
 export interface InteractionResponse {
-  interactions: DrugInteraction[];
+  /** Already mapped to the shape the warnings UI renders. */
+  interactions: ScreeningWarning[];
   /** Pairs no source could answer. A non-empty list means the screen was
    *  incomplete, regardless of how many interactions were found. */
   unscreened_pairs: UnscreenedPair[];
@@ -397,7 +432,7 @@ export const checkPrescriptionInteractions = async (
     });
     const unscreened = response.data.unscreened_pairs ?? [];
     return {
-      interactions: response.data.interactions ?? [],
+      interactions: (response.data.interactions ?? []).map(toWarning),
       unscreened_pairs: unscreened,
       // Defaults to the pessimistic reading if the field is absent, so an old
       // or unexpected response never presents as a confirmed clean screen.
