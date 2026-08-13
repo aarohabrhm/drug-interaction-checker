@@ -5,10 +5,14 @@ current medications. Interactions are resolved from a local dataset first, then
 from a cached external lookup (Google Gemini) for pairs the dataset does not
 cover.
 
-> **Status: deployable, with one thing you must do first.** The credentials in
-> this repository's git history still need rotating — everything else on the
-> old blocking list is closed. See [Before you deploy](#before-you-deploy)
-> and [Deploying to Render](#deploying-to-render).
+> **Status: deployable.** The blocking items from the production-readiness audit
+> are closed. Configuration is read from the environment, and the app refuses to
+> start in production with anything missing. See
+> [Before you deploy](#before-you-deploy) and
+> [Deploying to Render](#deploying-to-render).
+>
+> A portfolio project, not a certified clinical tool — and no substitute for a
+> pharmacist or a maintained interaction database.
 
 ## Tech stack
 
@@ -341,14 +345,16 @@ safety-critical rendering: that "checked and clear", "found something" and
 
 ## Before you deploy
 
-**One blocking item remains:**
+**Configuration.** Nothing is hardcoded. Every secret is read from the
+environment, `backend/.env.example` is the full list, and `settings.py` refuses
+to boot with `DJANGO_DEBUG=false` unless each required variable is present —
+failing immediately and naming the one that is missing.
 
-1. **Rotate the leaked credentials.** The Django `SECRET_KEY` and the Postgres
-   password `sql@123` are present in every commit of this repository's history.
-   Removing them from the working tree does not remove them from history.
-   Rotate both, and purge history (or make the repo private) if it was ever
-   public. `render.yaml` generates a fresh `SECRET_KEY` for you, so the leaked
-   one is never reused — but treat the old values as burned regardless.
+Early commits, before that change, set a development `SECRET_KEY` and database
+password directly in `settings.py`. Those values were replaced during the
+production-readiness work and are not used anywhere; `render.yaml` generates a
+fresh `SECRET_KEY` at deploy time and the database password is issued by the
+platform. Treat anything from that period as dead.
 
 Handled automatically, previously manual:
 
@@ -363,14 +369,14 @@ Handled automatically, previously manual:
 
 Still your responsibility:
 
-2. **Set every required environment variable** in your platform's secret store
+1. **Set every required environment variable** in your platform's secret store
    (`backend/.env.example` is the full list).
-3. **Serve over HTTPS.** `DJANGO_DEBUG=false` turns on HSTS, secure cookies and
+2. **Serve over HTTPS.** `DJANGO_DEBUG=false` turns on HSTS, secure cookies and
    the SSL redirect; the app assumes TLS terminates in front of it and trusts
    `X-Forwarded-Proto`.
-4. **Restrict `CORS_ALLOWED_ORIGINS`** to your real frontend origin. A `*` value
+3. **Restrict `CORS_ALLOWED_ORIGINS`** to your real frontend origin. A `*` value
    is rejected at startup.
-5. Review the remaining dependency advisories — `npm audit` in `project/`
+4. Review the remaining dependency advisories — `npm audit` in `project/`
    reports 4 (1 high, 3 moderate), all requiring major version bumps. The high
    one is a Vite **dev-server** path traversal: it is not present in the
    production bundle, but fixing it means moving to Vite 8. The react-router
