@@ -119,18 +119,6 @@ export default function Landing() {
                   <Link to="/login">Sign in</Link>
                 </Button>
               </div>
-
-              <dl className="mt-14 grid max-w-xs grid-cols-2 gap-8 border-t border-border pt-7">
-                {[
-                  ['4', 'severity grades'],
-                  ['3', 'data sources'],
-                ].map(([value, label]) => (
-                  <div key={label}>
-                    <dt className="tabular font-display text-2xl text-foreground">{value}</dt>
-                    <dd className="mt-1 text-xs leading-snug text-muted-foreground">{label}</dd>
-                  </div>
-                ))}
-              </dl>
             </div>
 
             {/* The signature: a screening resolving pair by pair on load. */}
