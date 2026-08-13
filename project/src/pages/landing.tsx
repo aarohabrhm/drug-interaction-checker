@@ -120,11 +120,10 @@ export default function Landing() {
                 </Button>
               </div>
 
-              <dl className="mt-14 grid max-w-md grid-cols-3 gap-6 border-t border-border pt-7">
+              <dl className="mt-14 grid max-w-xs grid-cols-2 gap-8 border-t border-border pt-7">
                 {[
                   ['4', 'severity grades'],
                   ['3', 'data sources'],
-                  ['0', 'pairs quietly dropped'],
                 ].map(([value, label]) => (
                   <div key={label}>
                     <dt className="tabular font-display text-2xl text-foreground">{value}</dt>
