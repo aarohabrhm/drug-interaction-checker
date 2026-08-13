@@ -89,6 +89,19 @@ const SEVERITY_STYLES: Record<Severity, SeverityStyle> = {
   },
 };
 
+/**
+ * Hex per grade, for contexts that cannot take a Tailwind class -- an SVG
+ * `stroke`, or an inline swatch. Kept beside the class definitions above so a
+ * palette change touches one file.
+ */
+export const GRADE_COLOURS: Record<Severity, string> = {
+  contraindicated: 'hsl(0 72% 51%)',
+  major: 'hsl(21 90% 48%)',
+  moderate: 'hsl(45 93% 39%)',
+  minor: 'hsl(199 89% 48%)',
+  unknown: 'hsl(215 20% 65%)',
+};
+
 /** Checked, and nothing found. The only place green is allowed. */
 export const CLEAR_STYLE = {
   label: 'No known interaction',

@@ -1,31 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, Ban, Database, HelpCircle, ShieldCheck, Users } from 'lucide-react';
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { StatCard } from '../components/common/StatCard';
+import { SeverityDonut } from '../components/common/SeverityDonut';
 import { DataTable, type Column } from '../components/common/DataTable';
 import { SeverityBadge } from '../components/common/SeverityBadge';
 import { DrugChip } from '../components/common/DrugChip';
 import { CardSkeleton, EmptyState, ErrorState, PageHeader } from '../components/common/states';
-import { bySeverityDescending, severityStyle } from '../lib/severity';
+import { GRADE_COLOURS, bySeverityDescending, severityStyle } from '../lib/severity';
 import {
   fetchPrescriptions,
   fetchStats,
   type Prescription,
-  type Severity,
   type Stats,
 } from '../../utils/api';
 import { useDocumentMeta } from '../lib/useDocumentMeta';
-
-/** Hex per grade, read from the tokens so the chart cannot drift from the badges. */
-const CHART_COLOURS: Record<Severity, string> = {
-  contraindicated: 'hsl(0 72% 51%)',
-  major: 'hsl(21 90% 48%)',
-  moderate: 'hsl(45 93% 39%)',
-  minor: 'hsl(199 89% 48%)',
-  unknown: 'hsl(215 20% 65%)',
-};
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -184,37 +174,8 @@ export function Dashboard() {
             </p>
           ) : (
             <>
-              <div className="mt-4 h-[180px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={graded}
-                      dataKey="count"
-                      nameKey="severity"
-                      innerRadius={52}
-                      outerRadius={78}
-                      paddingAngle={2}
-                      stroke="none"
-                    >
-                      {graded.map((row) => (
-                        <Cell key={row.severity} fill={CHART_COLOURS[row.severity]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: '0.5rem',
-                        border: '1px solid hsl(210 40% 93%)',
-                        fontSize: '12px',
-                      }}
-                      // Recharts types the payload loosely; narrow it here
-                      // rather than widening our own signature to `any`.
-                      formatter={(value, name) => [
-                        Number(value ?? 0),
-                        severityStyle(String(name)).label,
-                      ]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+              <div className="mt-4 flex justify-center">
+                <SeverityDonut data={graded} />
               </div>
 
               {/* The legend carries the labels; the chart is not the only way to
@@ -225,7 +186,7 @@ export function Dashboard() {
                     <span className="flex items-center gap-2">
                       <span
                         className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: CHART_COLOURS[row.severity] }}
+                        style={{ backgroundColor: GRADE_COLOURS[row.severity] }}
                       />
                       <span className="text-muted-foreground">
                         {severityStyle(row.severity).label}
