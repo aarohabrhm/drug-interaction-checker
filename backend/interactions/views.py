@@ -248,13 +248,24 @@ def _resolve_known_pairs(pairs):
     )
     for drug_1, drug_2, interaction, severity, management in dataset_rows:
         key = tuple(sorted([drug_1, drug_2]))
-        if key in pairs and key not in resolved:
-            resolved[key] = InteractionFinding(
-                description=interaction,
-                severity=severity,
-                source=InteractionSource.DATASET,
-                management=management or "",
-            )
+        if key not in pairs:
+            continue
+        # A pair can legitimately have two rows: `unique_together` is ordered,
+        # so a bulk dataset may state B+A where a curated file stated A+B. Take
+        # the most specific grading rather than whichever the database returned
+        # first, or a large ungraded import would silently downgrade a curated
+        # "contraindicated" to "unknown".
+        incumbent = resolved.get(key)
+        if incumbent is not None and SEVERITY_RANK.get(
+            incumbent.severity, 0
+        ) >= SEVERITY_RANK.get(severity, 0):
+            continue
+        resolved[key] = InteractionFinding(
+            description=interaction,
+            severity=severity,
+            source=InteractionSource.DATASET,
+            management=management or "",
+        )
 
     # One query for previously-cached external lookups.
     remaining = pairs - resolved.keys()

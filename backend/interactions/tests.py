@@ -4,10 +4,17 @@ Deliberately narrow: this is not a full suite. It pins the specific defects
 found during the production-readiness audit so they cannot silently return.
 """
 
+import os
+import shutil
+import tempfile
+import textwrap
+from io import StringIO
 from unittest.mock import Mock, patch
 
 import requests
 from django.contrib.auth.models import User
+from django.core.management import call_command
+from django.db.models import Q
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework.authtoken.models import Token
@@ -29,6 +36,7 @@ from .models import (
     TemporaryPrescription,
 )
 from .services import InteractionFinding, lookup_openfda
+from .views import _resolve_known_pairs
 
 
 class PatientAccessControlTests(APITestCase):
@@ -985,3 +993,106 @@ class HealthEndpointTests(APITestCase):
         response = self.client.get(reverse("readiness"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["checks"]["database"], "ok")
+
+
+class ImportSeverityCollisionTests(APITestCase):
+    """Importing a bulk dataset must never downgrade a curated grading.
+
+    The DrugBank-derived exports in common circulation carry ~191k pairs and no
+    severity column at all. Roughly 19 of them restate pairs the curated file
+    grades, often with the drugs the other way round -- and `unique_together`
+    is ordered, so the database does not treat those as the same row. Without
+    the guard, importing one silently turned "contraindicated" into "unknown".
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        DrugInteraction.objects.create(
+            drug_1="clarithromycin",
+            drug_2="simvastatin",
+            interaction="Rhabdomyolysis risk.",
+            severity=Severity.CONTRAINDICATED,
+            management_recommendation="Suspend the statin.",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _csv(self, text):
+        path = os.path.join(self.tmp, "data.csv")
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(textwrap.dedent(text).lstrip())
+        return path
+
+    def _grade(self, a, b):
+        row = DrugInteraction.objects.filter(
+            Q(drug_1__iexact=a, drug_2__iexact=b) | Q(drug_1__iexact=b, drug_2__iexact=a)
+        )
+        return [r.severity for r in row]
+
+    def test_ungraded_row_does_not_shadow_a_curated_grading(self):
+        """Same pair, reversed order, no grading -- the curated row must win."""
+        path = self._csv(
+            """\
+            Drug 1,Drug 2,Interaction Description
+            Simvastatin,Clarithromycin,Clarithromycin may increase the myopathy risk.
+            """
+        )
+        call_command("import_interactions", path=path, stdout=StringIO())
+
+        # One row, still contraindicated -- not two rows, and not downgraded.
+        self.assertEqual(self._grade("clarithromycin", "simvastatin"), ["contraindicated"])
+
+    def test_better_grading_replaces_a_weaker_one(self):
+        """The guard is not simply 'first write wins'."""
+        DrugInteraction.objects.create(
+            drug_1="warfarin", drug_2="aspirin", interaction="Bleeding.",
+            severity=Severity.MINOR,
+        )
+        path = self._csv(
+            """\
+            Drug_A,Drug_B,Level,Description
+            aspirin,warfarin,Major,Additive bleeding risk.
+            """
+        )
+        call_command("import_interactions", path=path, stdout=StringIO())
+
+        self.assertEqual(self._grade("warfarin", "aspirin"), [Severity.MAJOR])
+
+    def test_space_separated_headers_are_accepted(self):
+        """`Drug 1`/`Drug 2` is what the Kaggle exports actually ship."""
+        path = self._csv(
+            """\
+            Drug 1,Drug 2,Interaction Description
+            Trioxsalen,Verteporfin,May increase photosensitizing activities.
+            """
+        )
+        call_command("import_interactions", path=path, stdout=StringIO())
+
+        self.assertTrue(
+            DrugInteraction.objects.filter(
+                drug_1__iexact="Trioxsalen", drug_2__iexact="Verteporfin"
+            ).exists()
+        )
+
+    def test_reversed_duplicates_within_one_file_collapse(self):
+        path = self._csv(
+            """\
+            Drug 1,Drug 2,Interaction Description
+            Amiodarone,Digoxin,Raises digoxin levels.
+            Digoxin,Amiodarone,Levels raised by amiodarone.
+            """
+        )
+        call_command("import_interactions", path=path, stdout=StringIO())
+
+        self.assertEqual(len(self._grade("amiodarone", "digoxin")), 1)
+
+    def test_lookup_prefers_the_graded_row_when_both_exist(self):
+        """Defence in depth: even if both rows are somehow stored."""
+        DrugInteraction.objects.create(
+            drug_1="simvastatin", drug_2="clarithromycin",
+            interaction="Ungraded restatement.", severity=Severity.UNKNOWN,
+        )
+        resolved, _ = _resolve_known_pairs({("clarithromycin", "simvastatin")})
+        finding = resolved[("clarithromycin", "simvastatin")]
+        self.assertEqual(finding.severity, Severity.CONTRAINDICATED)

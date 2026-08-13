@@ -25,16 +25,45 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 
-from interactions.models import DrugInteraction, Severity
+from interactions.models import SEVERITY_RANK, DrugInteraction, Severity
 
 BATCH_SIZE = 1000
 
-# Column name -> canonical field, matched case-insensitively.
-_DRUG_A_COLUMNS = ("drug_a", "drug_1", "drug1", "druga", "object", "precipitant")
-_DRUG_B_COLUMNS = ("drug_b", "drug_2", "drug2", "drugb", "affected")
-_LEVEL_COLUMNS = ("level", "severity", "significance")
-_TEXT_COLUMNS = ("interaction", "description", "mechanism", "summary", "effect")
+
+def _pair_key(drug_1, drug_2):
+    """Order-independent identity for a drug pair.
+
+    An interaction between A and B is the same fact as one between B and A, but
+    `unique_together` treats the two orderings as different rows. Callers that
+    care about the interaction rather than the row must compare on this.
+    """
+    return tuple(sorted(((drug_1 or "").strip().lower(), (drug_2 or "").strip().lower())))
+
+
+def _rank(severity):
+    """How specific a grading is. Higher wins; `None`/unknown ranks lowest."""
+    return SEVERITY_RANK.get(severity, 0) if severity else -1
+
+# Column name -> canonical field, matched case-insensitively. Space-separated
+# spellings ("Drug 1", "Interaction Description") are what the DrugBank-derived
+# exports on Kaggle use, and they are common enough to be worth matching.
+_DRUG_A_COLUMNS = (
+    "drug_a", "drug_1", "drug1", "druga", "drug a", "drug 1", "object", "precipitant"
+)
+_DRUG_B_COLUMNS = (
+    "drug_b", "drug_2", "drug2", "drugb", "drug b", "drug 2", "affected"
+)
+_LEVEL_COLUMNS = ("level", "severity", "significance", "interaction level")
+_TEXT_COLUMNS = (
+    "interaction",
+    "description",
+    "interaction description",
+    "mechanism",
+    "summary",
+    "effect",
+)
 _MANAGEMENT_COLUMNS = ("management", "recommendation", "action", "advice")
 
 # DDInter grades map onto our scale. "Unknown" is preserved as unknown rather
@@ -111,25 +140,63 @@ class Command(BaseCommand):
             if options["replace"]:
                 deleted, _ = DrugInteraction.objects.all().delete()
                 self.stdout.write(self.style.WARNING(f"Deleted {deleted} existing rows."))
-                existing = set()
+                existing = {}
             else:
-                existing = set(
-                    DrugInteraction.objects.filter(
-                        drug_1__in={r["drug_1"] for r in rows}
-                    ).values_list("drug_1", "drug_2")
-                )
+                # Keyed on the *unordered* pair. `unique_together` is on
+                # (drug_1, drug_2) in that order, so it does not catch a row
+                # that states the same interaction the other way round -- and a
+                # large ungraded dataset reliably contains reversed duplicates
+                # of curated graded pairs.
+                existing = {}
+                for drug_1, drug_2, severity in DrugInteraction.objects.values_list(
+                    "drug_1", "drug_2", "severity"
+                ):
+                    key = _pair_key(drug_1, drug_2)
+                    if _rank(severity) > _rank(existing.get(key)):
+                        existing[key] = severity
 
-            to_create = [
-                DrugInteraction(
-                    drug_1=row["drug_1"],
-                    drug_2=row["drug_2"],
-                    interaction=row["interaction"],
-                    severity=row["severity"],
-                    management_recommendation=row["management"],
+            to_create = []
+            downgrades_skipped = 0
+            duplicates = 0
+            seen = {}
+
+            for row in rows:
+                key = _pair_key(row["drug_1"], row["drug_2"])
+
+                # Never let a less-specific grading displace a better one. An
+                # ungraded row for clarithromycin+simvastatin must not shadow the
+                # curated "contraindicated" record: losing a severity is a
+                # silent downgrade of a real clinical warning.
+                incumbent = existing.get(key, seen.get(key))
+                if incumbent is not None:
+                    if _rank(row["severity"]) > _rank(incumbent):
+                        # Better grading than what is stored: replace in place.
+                        DrugInteraction.objects.filter(
+                            Q(drug_1__iexact=row["drug_1"], drug_2__iexact=row["drug_2"])
+                            | Q(drug_1__iexact=row["drug_2"], drug_2__iexact=row["drug_1"])
+                        ).update(
+                            interaction=row["interaction"],
+                            severity=row["severity"],
+                            management_recommendation=row["management"],
+                        )
+                        existing[key] = row["severity"]
+                        continue
+                    if _rank(row["severity"]) < _rank(incumbent):
+                        downgrades_skipped += 1
+                    else:
+                        duplicates += 1
+                    continue
+
+                seen[key] = row["severity"]
+                to_create.append(
+                    DrugInteraction(
+                        drug_1=row["drug_1"],
+                        drug_2=row["drug_2"],
+                        interaction=row["interaction"],
+                        severity=row["severity"],
+                        management_recommendation=row["management"],
+                    )
                 )
-                for row in rows
-                if (row["drug_1"], row["drug_2"]) not in existing
-            ]
 
             DrugInteraction.objects.bulk_create(
                 to_create, batch_size=BATCH_SIZE, ignore_conflicts=True
@@ -138,10 +205,18 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Inserted {len(to_create)} rows ({breakdown}); "
-                f"skipped {len(rows) - len(to_create)} duplicates; "
+                f"skipped {duplicates} duplicates; "
                 f"{skipped} malformed rows ignored."
             )
         )
+        if downgrades_skipped:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Kept the existing grading for {downgrades_skipped} pair(s) where "
+                    f"this file was less specific (e.g. ungraded rows that would have "
+                    f"shadowed a curated severity)."
+                )
+            )
 
     # ----------------------------------------------------------------- parsing
 

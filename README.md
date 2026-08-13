@@ -173,8 +173,37 @@ python manage.py import_interactions --path ddinter_downloads_code_A.csv --repla
 python manage.py import_interactions --path data.csv --dry-run   # preview
 ```
 
-The importer auto-detects DDInter's columns (`Drug_A`, `Drug_B`, `Level`, …) and
-the legacy `drug_1,drug_2,interaction` layout.
+The importer detects column names case-insensitively and accepts DDInter
+(`Drug_A`, `Drug_B`, `Level`, …), the legacy `drug_1,drug_2,interaction`
+layout, and the space-separated `Drug 1,Drug 2,Interaction Description` spelling
+used by the DrugBank-derived exports circulated on Kaggle.
+
+#### Grading is never downgraded by a bulk import
+
+Large DDI exports are typically **ungraded** — they describe a mechanism but
+assign no severity. They also restate pairs a curated file already grades, often
+with the two drugs the other way round, and `unique_together` is ordered so the
+database does not recognise those as the same interaction.
+
+Importing one naively therefore used to turn a curated *Contraindicated* into
+*Unknown*. The importer now compares pairs order-independently and keeps the more
+specific grading, reporting what it kept:
+
+```
+Inserted 191116 rows (191541 unknown); skipped 406 duplicates
+Kept the existing grading for 19 pair(s) where this file was less specific
+```
+
+A better grading still replaces a weaker one, so re-importing a graded dataset
+over an ungraded one upgrades it as expected. Interaction lookup applies the
+same rule at read time, so even a database that somehow holds both rows surfaces
+the graded one.
+
+> **Licensing.** DrugBank-derived datasets (including the common Kaggle export)
+> are CC BY-NC with redistribution restrictions — do **not** commit one to a
+> public repository. `backend/db_drug_interactions.csv` is gitignored for that
+> reason: keep the file local, import it, and document where to obtain it.
+> DDInter 2.0 is likewise non-commercial.
 
 **The NLM RxNav Drug Interaction API is not used: NIH discontinued it in January
 2024**, and DrugBank retired its free checker in March 2026. RxNorm
