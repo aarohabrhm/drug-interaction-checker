@@ -130,6 +130,26 @@ class PlatformHostnameTests(SimpleTestCase):
         response = self.client.get(reverse("liveness"), HTTP_HOST="evil.example.com")
         self.assertEqual(response.status_code, 400)
 
+    def test_loopback_is_allowed_for_container_healthchecks(self):
+        """A container probes its own port, so the Host is "localhost".
+
+        Without this the probe is rejected as DisallowedHost and the
+        orchestrator marks a healthy container failed -- while every external
+        request keeps working, so the service looks fine from outside.
+        """
+        from django.conf import settings
+
+        for host in ("localhost", "127.0.0.1"):
+            with self.subTest(host=host):
+                self.assertIn(host, settings.ALLOWED_HOSTS)
+                response = self.client.get(reverse("liveness"), HTTP_HOST=host)
+                self.assertEqual(response.status_code, 200)
+
+    def test_loopback_with_a_port_is_allowed(self):
+        """The probe targets an assigned port, e.g. localhost:10000."""
+        response = self.client.get(reverse("liveness"), HTTP_HOST="localhost:10000")
+        self.assertEqual(response.status_code, 200)
+
 
 class OriginNormalizationTests(SimpleTestCase):
     """CORS and CSRF need absolute origins; deployments supply bare hostnames.

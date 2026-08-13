@@ -125,6 +125,19 @@ for _var in ("RENDER_EXTERNAL_HOSTNAME", "FLY_APP_NAME_HOSTNAME", "WEBSITE_HOSTN
     if _platform_host and _platform_host not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(_platform_host)
 
+# Loopback, always. A container healthcheck probes its own port -- so the Host
+# header is "localhost", not the public name -- and without this the probe is
+# rejected as DisallowedHost and the orchestrator marks a perfectly healthy
+# container as failed. Docker, Compose and Kubernetes liveness probes all work
+# this way.
+#
+# This does not widen the app's exposure: a loopback Host only reaches the
+# application from inside the container or host, and a reverse proxy in front
+# does not forward it. Externally routable names still have to be listed.
+for _loopback in ("localhost", "127.0.0.1", "[::1]"):
+    if _loopback not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_loopback)
+
 if not DEBUG and not ALLOWED_HOSTS and not _IS_LENIENT:
     raise ImproperlyConfigured(
         "DJANGO_ALLOWED_HOSTS must be set when DJANGO_DEBUG=false."
@@ -136,7 +149,7 @@ CSRF_TRUSTED_ORIGINS = _origins("DJANGO_CSRF_TRUSTED_ORIGINS")
 # CSRF as well. Derived from the same platform hostname resolved above rather
 # than repeated by hand.
 for _host in ALLOWED_HOSTS:
-    if _host not in ("localhost", "127.0.0.1") and not _host.startswith("."):
+    if _host not in ("localhost", "127.0.0.1", "[::1]") and not _host.startswith("."):
         _origin = f"https://{_host}"
         if _origin not in CSRF_TRUSTED_ORIGINS:
             CSRF_TRUSTED_ORIGINS.append(_origin)

@@ -209,10 +209,15 @@ jobs:
           done
 
       - name: Docker's own healthcheck reports healthy
-        # It probes $PORT from inside the container; a hardcoded port passes
-        # locally and fails wherever the platform assigns a different one.
+        # It probes $PORT from inside the container, so this covers two things
+        # an external request cannot: that the port is the one gunicorn bound,
+        # and that a loopback Host is accepted. A container rejected by its own
+        # probe is marked unhealthy while every external request still works.
+        #
+        # The window allows for the 20s start period plus a 30s interval, so it
+        # must comfortably exceed 50s.
         run: |
-          for i in $(seq 1 60); do
+          for i in $(seq 1 120); do
             s=$(docker inspect -f '{{.State.Health.Status}}' safemeds 2>/dev/null || echo none)
             case "$s" in
               healthy) echo "healthy after ${i}s"; exit 0 ;;
